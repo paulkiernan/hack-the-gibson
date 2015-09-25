@@ -48,20 +48,7 @@ int main(int argc, char **argv)
     params.Stencilbuffer = false;
     params.WindowSize = res;
 
-    #ifdef _IRR_WINDOWS_
-    //#include <windows.h>
-
-        if(__argc > 2)
-        {
-            if(strcmp(__argv[1], "/p") == 0)
-                params.WindowId = reinterpret_cast<void*>(atoi(__argv[2]));
-        }
-
-    #endif
-
     irrlicht = createDeviceEx(params);
-
-
 
     Video=irrlicht->getVideoDriver();
     Scene=irrlicht->getSceneManager();
