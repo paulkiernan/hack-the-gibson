@@ -28,16 +28,13 @@
 
 extern f32 then, delta;
 
-dimension2d<u32> getScreenResolution(void)
-{
-	// create a NULL device to detect screen resolution
-	IrrlichtDevice *nulldevice = createDevice(video::EDT_NULL);
+dimension2d<u32> getScreenResolution(void){
+    // create a NULL device to detect screen resolution
+    IrrlichtDevice *nulldevice = createDevice(video::EDT_NULL);
+    core::dimension2d<u32> deskres = nulldevice->getVideoModeList()->getDesktopResolution();
+    nulldevice -> drop();
 
-	core::dimension2d<u32> deskres = nulldevice->getVideoModeList()->getDesktopResolution();
-
-	nulldevice -> drop();
-
-	return deskres;
+    return deskres;
 }
 
 #endif /* MAIN_H_ */
