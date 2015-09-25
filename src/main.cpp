@@ -25,18 +25,17 @@
 
 f32 then, delta;
 
+wchar_t* gibson_version = L"The Gibson version 15";
+char* loading_image = "loading.png";
 
-int main(int argc, char **argv)
-{
+
+int main(int argc, char **argv){
 
     //Ray.init(OGL, 800,600, false, false, false);
+    //Ray.init(OGL, res.Width, res.Height, true, false, false);
+
     dimension2d<u32> res;
     res = getScreenResolution();
-
-    //Ray.init(OGL, res.Width,res.Height, true, false, false);
-
-    /* initialize window */
-    //irrlicht=createDevice(driver, dimension2d<u32>(w,h), 32, fs, shadows, false, &rcv);
 
     SIrrlichtCreationParameters params;
     params.AntiAlias = 4;
@@ -65,35 +64,44 @@ int main(int argc, char **argv)
 
     irrlicht->getFileSystem()->changeWorkingDirectoryTo("C:\\Gibson\\");
 
-
     Ray.hideCursor();
     Video->setAllowZWriteOnTransparent(true);
 
     IPostProc* ppRenderer = new CRendererPostProc( Scene, dimension2du( 1024, 1024 ), true, true, SColor( 255u, 0,10,15 ) );
+
     // When setting up the effect, the parameters are:
-    // Input, size of output, effect ID (see CEffectPostProc.h for full list), effect parameters (in this case, blur size)
-    CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_BLOOM, 3, 0.005, 1.5);
-    //CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_MOTIONBLUR, 0.1);
+    // Input, size of output, effect ID (see CEffectPostProc.h for full
+    // list), effect parameters (in this case, blur size)
     //CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_BLOOM, 3, 0.005, 1.5);
     //CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_INVERT);
-    // Change to a better quality - not all shaders will respect these, but they can be used to hint the rendering standard required.
+    CEffectPostProc* ppBlur = new CEffectPostProc(
+        ppRenderer,
+        dimension2du(1024, 1024),
+        PP_MOTIONBLUR,
+        0.1
+    );
+
+    // Change to a better quality - not all shaders will respect these,
+    // but they can be used to hint the rendering standard required.
+    // Options (worst to best): PPQ_CRUDE, PPQ_FAST, PPQ_DEFAULT,
+    //     PPQ_GOOD, PPQ_BEST
+    // You can also call setOverallQuality( PPQ_WHATEVER ) to change the
+    // quality of all effects which are in the chain.
     ppBlur->setQuality( PPQ_BEST );
-    // Options (worst to best): PPQ_CRUDE, PPQ_FAST, PPQ_DEFAULT, PPQ_GOOD, PPQ_BEST
-    // You can also call setOverallQuality( PPQ_WHATEVER ) to change the quality of all effects which are in the chain.
 
     //Ray.importZipFile("D:\\gibson\\data.zip");
 
-    Ray.setWindowTitle(L"The Gibson version 15");
+    Ray.setWindowTitle(gibson_version);
 
     Image loading;
-    loading.loadImg("loading.png");
+    loading.loadImg(loading_image);
 
     Ray.Render.clearScreen(0,0,0,1);
 
     loading.draw((res.Width/2) - (loading.w/2), (res.Height/2) - (loading.h/2));
 
-       Gui->drawAll();
-       Video->endScene();
+    Gui->drawAll();
+    Video->endScene();
 
     Room room;
     FlyCam cam;
@@ -168,49 +176,49 @@ int main(int argc, char **argv)
 
 
 
-        // The rendering is as normal, except smgr->drawAll(); is replaced with this line:
-           ppBlur->render( NULL ); // NULL = render to screen. Can also take a texture to render to, or no parameter (renders to an internal texture)
-           //*/
-           //Scene->drawAll();
+       // The rendering is as normal, except smgr->drawAll(); is
+       // replaced with this line:
+       // NULL = render to screen. Can also take a texture to render to,
+       // or no parameter (renders to an internal texture)
+       ppBlur->render( NULL );
+       //*/
+       //Scene->drawAll();
 
-           Gui->drawAll();
-           Video->endScene();
+       Gui->drawAll();
+       Video->endScene();
 
 
-           /*
-        fps = Video->getFPS();
+       // Change the window title reflect changes in the FPS count
+       fps = Video->getFPS();
+        if (lastFPS != fps){
+            core::stringw str = gibson_version;
+            str += " FPS: ";
+            str += fps;
 
-        if (lastFPS != fps)
-        {
-                core::stringw str = L"The Gibson Version 14 ";
-                str += "FPS: ";
-                str += fps;
-
-                irrlicht->setWindowCaption(str.c_str());
-                lastFPS = fps;
+            irrlicht->setWindowCaption(str.c_str());
+            lastFPS = fps;
         }
-        */
     }
 
     delete ppBlur;
     delete ppRenderer;
 
 
-    /*
-    cout << cam.cam.camera->getAbsolutePosition().X << ',' \
-            << cam.cam.camera->getAbsolutePosition().Y << ',' \
-            << cam.cam.camera->getAbsolutePosition().Z << '\n';
-    cout << cam.empty->getAbsolutePosition().X << ',' \
-            << cam.empty->getAbsolutePosition().Y << ',' \
-            << cam.empty->getAbsolutePosition().Z << '\n';
-            */
-    cout << "Made it to end! Attempting Ray.exit...\n";
+    //cout << cam.cam.camera->getAbsolutePosition().X << ',' \
+            //<< cam.cam.camera->getAbsolutePosition().Y << ',' \
+            //<< cam.cam.camera->getAbsolutePosition().Z << '\n';
+    //cout << cam.empty->getAbsolutePosition().X << ',' \
+            //<< cam.empty->getAbsolutePosition().Y << ',' \
+            //<< cam.empty->getAbsolutePosition().Z << '\n';
+
+    cout << "Made it to end! Attempting Ray.exit..." << endl;
 
     Ray.exit();
 
-    cout << "Ray3D is dead!\n";
-
     exit(0);
+
+    cout << "Ray3D is dead!" << endl;
+
 
     // This shouldn't be necessary
     return 0;
