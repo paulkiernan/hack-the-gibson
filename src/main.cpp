@@ -19,14 +19,6 @@
 */
 
 //-Wl,-subsystem,windows
-// _IRR_WINDOWS_ doesn't work until you include irrlicht.h,
-// after which further inclusions of windows.h break everything.
-// I've replaced it with my own WINSTINKS
-// To this effect, just add -DWINSTINKS to the compiler flags when compiling under Windoze,
-// and you'll be fine.
-#ifdef WINSTINKS
-#include <windows.h>
-#endif
 
 #include "main.h"
 #include "pathCreator.h"
@@ -34,17 +26,8 @@
 f32 then, delta;
 
 
-#ifdef WINSTINKS
-
-INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, \
-	    LPSTR lpCmdLine, INT nCmdShow)
-{
-
-#else
 int main(int argc, char **argv)
 {
-
-#endif
 
 	//Ray.init(OGL, 800,600, false, false, false);
 	dimension2d<u32> res;

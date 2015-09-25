@@ -21,19 +21,19 @@
 #ifndef CAM_H_
 #define CAM_H_
 #include <ray3d.h>
-#include <Effects\CRendererPostProc.h>
-#include <Effects\CEffectPostProc.h>
-#include <Effects\CTransitionPostProc.h>
-#include <Effects\CSplitPostProc.h>
-#include <Effects\CLensFlarePostProc.h>
-#include <Effects\CWaterPostProc.h>
+#include <Effects/CRendererPostProc.h>
+#include <Effects/CEffectPostProc.h>
+#include <Effects/CTransitionPostProc.h>
+#include <Effects/CSplitPostProc.h>
+#include <Effects/CLensFlarePostProc.h>
+#include <Effects/CWaterPostProc.h>
 #include "room.h"
 
 extern int CAM_MOVEMENT_SPEED;
-#define INDEX_LENGTH		11
+#define INDEX_LENGTH        11
 #define CAM_ROTATION_SPEED  120
 #define TOWER_HEIGHT 80
-#define SPEEDUP_DAMP	3
+#define SPEEDUP_DAMP    3
 #define INDEX_PRECISION 0.2
 
 extern f32 then, delta;
@@ -42,28 +42,28 @@ class FlyCam
 {
 public:
 
-	Camera cam;
+    Camera cam;
 
-	//vector3df movement[INDEX_LENGTH];
-	//vector3df rotation[INDEX_LENGTH];
-	f32 velocity[INDEX_LENGTH];
+    //vector3df movement[INDEX_LENGTH];
+    //vector3df rotation[INDEX_LENGTH];
+    f32 velocity[INDEX_LENGTH];
 
-	ISceneNodeAnimator *anim;
-	core::array<core::vector3df> camPath;
+    ISceneNodeAnimator *anim;
+    core::array<core::vector3df> camPath;
 
-	ISceneNode *empty;
+    ISceneNode *empty;
 
-	vector3df prevPos, prevRot;
-	vector3di setRot;
+    vector3df prevPos, prevRot;
+    vector3di setRot;
 
-	array<vector3df> camSpline;
+    array<vector3df> camSpline;
 
-	f32 prevVel;
+    f32 prevVel;
 
-	int movementIndex;
+    int movementIndex;
 
-	void init();
-	void update();
+    void init();
+    void update();
 
 };
 
