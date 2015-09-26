@@ -11,7 +11,6 @@ CC=g++
 #   -g    adds debugging information to the executable file
 #  -Wall turns on most, but not all, compiler warnings
 CFLAGS=-g -Wall
-#INCLUDE_DIRS=include include/Irrlicht
 INCLUDE_DIRS=/usr/local/include include /usr/local/Cellar/irrlicht/1.8.1/include/irrlicht/
 INCLUDES=$(foreach d, $(INCLUDE_DIRS), -I$d)
 
@@ -32,7 +31,7 @@ SRCS=main.cpp PathCreator.cpp pulse.cpp room.cpp cam.cpp include/gui.cpp include
 # This uses Suffix Replacement within a macro:
 #   $(name:string1=string2)
 #         For each word in 'name' replace 'string1' with 'string2'
-# Below we are replacing the suffix .c of all words in the macro SRCS
+# Below we are replacing the suffix .cpp of all words in the macro SRCS
 # with the .o suffix
 #
 OBJS = $(SRCS:.cpp=.o)
@@ -48,7 +47,7 @@ $(MAIN): $(OBJS)
 
 # this is a suffix replacement rule for building .o's from .c's
 # it uses automatic variables $<: the name of the prerequisite of
-# the rule(a .c file) and $@: the name of the target of the rule (a .o file) 
+# the rule(a .cpp file) and $@: the name of the target of the rule (a .o file) 
 # (see the gnu make manual section about automatic variables)
 .cpp.o:
 	$(CC) $(CFLAGS) $(INCLUDES) $(LFLAGS) $(LIBS) -c $<  -o $@
