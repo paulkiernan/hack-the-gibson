@@ -42,6 +42,11 @@ make
 ./gibson
 ```
 
+# Known Issues
+
+1. This isn't an actual screensaver installable on a mac. (YET!)
+2. The thing segfaults on exit. (Patience, patience...)
+
 
 # Credit
 
