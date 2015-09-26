@@ -18,6 +18,15 @@ eventually other platforms) and open it up to the hacker community to
 extend to their heart's desire.
 
 
+# Screenshots
+
+![overhead](media/screenshot1.png)
+*omg, such cool*
+
+![low_shot](media/screenshot2.png)
+*wow, real hackz*
+
+
 # Installation
 
 ```bash
