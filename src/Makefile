@@ -1,6 +1,4 @@
 #
-# 'make depend' uses makedepend to automatically generate dependencies 
-#               (dependencies are added to end of Makefile)
 # 'make'        build executable file 'gibson'
 # 'make clean'  removes all .o and executable files
 #
@@ -54,9 +52,3 @@ $(MAIN): $(OBJS)
 clean:
 	rm *.o ~* $(MAIN)
 	rm include/*.o
-
-depend: $(SRCS)
-	makedepend $(INCLUDES) $^
-
-# DO NOT DELETE THIS LINE -- make depend needs it
-

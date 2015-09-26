@@ -35,7 +35,6 @@ brew install irrlicht glfw3 glew
 
 # Build the makefile deps
 cd src
-make depend
 make
 
 # Run!
