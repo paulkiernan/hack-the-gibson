@@ -23,10 +23,11 @@
 #include "main.h"
 #include "pathCreator.h"
 
+// Global variables
 f32 then, delta;
 
 wchar_t* gibson_version = L"The Gibson version 15";
-char* loading_image = "loading.png";
+char* loading_image = "media/loading.png";
 
 
 int main(int argc, char **argv){
