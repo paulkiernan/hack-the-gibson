@@ -22,39 +22,34 @@
 
 void Font::loadFont(char * filename)
 {
-  font = Gui->getFont(filename);
+    font = Gui->getFont(filename);
 }
 
 Font::Font()
 {
-  //font = Gui->getBuiltInFont();
+    //font = Gui->getBuiltInFont();
 }
 
 
 void drawText(Font locFont, const wchar_t *text, int x, int y, int r, int g, int b, int a)
 {
-  dimension2d<u32> size = locFont.font->getDimension(text);
-  locFont.font->draw(text,rect<s32>(x,y, (x + size.Width),(y + size.Height)), SColor(a,r,g,b));
+    dimension2d<u32> size = locFont.font->getDimension(text);
+    locFont.font->draw(text,rect<s32>(x,y, (x + size.Width),(y + size.Height)), SColor(a,r,g,b));
 }
-
-
-
-
-
-
 
 
 void Image::loadImg(char *filename, int r, int g, int b, int a)
 {
-  img = Video->getTexture(filename);
-  Video->makeColorKeyTexture(img, SColor(a,r,g,b));
+    img = Video->getTexture(filename);
+    Video->makeColorKeyTexture(img, SColor(a,r,g,b));
 
-  dimension2d<u32> size = img->getOriginalSize();
-  w = size.Width;
-  h = size.Height;
+    dimension2d<u32> size = img->getOriginalSize();
+    w = size.Width;
+    h = size.Height;
 }
+
 
 void Image::draw(int x, int y, int r, int g, int b, int a)
 {
-  Video->draw2DImage(img, position2d<s32>(x,y), rect<s32>(0,0, w, h),0, SColor(a,r,g,b), true);
+    Video->draw2DImage(img, position2d<s32>(x,y), rect<s32>(0,0, w, h),0, SColor(a,r,g,b), true);
 }
