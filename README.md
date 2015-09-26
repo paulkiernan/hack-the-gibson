@@ -3,7 +3,7 @@
 > "Mess with the best, die like the rest." - Dade Murphey a.k.a. Crash
 > Override a.k.a. Zero Cool
 
-It's hard to believe [it's been over 20 years](http://passcode.csmonitor.com/hackers).
+It's hard to believe [it's been over 20 years](http://passcode.csmonitor.com/hackers)
 since we were all flown through the Gibson for the first time. Worse
 than that though is the lack of how this totally righteous and authentic
 hacking UI never caught on to the mainstream. This project aims to
@@ -17,6 +17,7 @@ for Windows. Here I pare his implementation down to work on osx (and
 eventually other platforms) and open it up to the hacker community to
 extend to their heart's desire.
 
+Pull requests welcome!
 
 # Screenshots
 
