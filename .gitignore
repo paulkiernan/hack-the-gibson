@@ -32,3 +32,6 @@
 
 # Old makefiles from makedepend
 Makefile.bak
+
+# GDB trash
+.gdb_history
