@@ -35,3 +35,6 @@ Makefile.bak
 
 # GDB trash
 .gdb_history
+
+# Project binary
+src/gibson
