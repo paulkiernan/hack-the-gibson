@@ -42,7 +42,6 @@ all: $(MAIN)
 	@echo "Its time to hack the gibson."
 
 $(MAIN): $(OBJS) 
-	@echo "Meow"
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
 
 # this is a suffix replacement rule for building .o's from .c's
