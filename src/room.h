@@ -35,27 +35,25 @@
 
 #define TOWER_DIST  30
 
-extern f32 then, delta;
-
 f32 getRand(f32 low, f32 high);
 
-class Room
-{
-public:
+class Room{
+    public:
 
-	Entity mesh;
+        Entity mesh;
+        Entity towers[TOWER_COUNT];
 
-	Entity towers[TOWER_COUNT];
-	int    type[TOWER_COUNT];		// stores the type of tower, dark or light as 1 or 2 respectively
-	ITexture *towerTex[TOWER_TEXTURE_COUNT * 2];
+        // stores the type of tower, dark or light as 1 or 2 respectively
+        int    type[TOWER_COUNT];
+        ITexture *towerTex[TOWER_TEXTURE_COUNT * 2];
 
-	Entity light;
+        Entity light;
 
-	int currentTowerTexture;
-	f32 timeSinceTowerUpdate;
+        int currentTowerTexture;
+        f32 timeSinceTowerUpdate;
 
-	void init();
-	void update();
+        void init();
+        void update();
 };
 
 #endif /* ROOM_H_ */

@@ -26,9 +26,8 @@
 #include "pulse.h"
 #include <time.h>
 
-extern f32 then, delta;
-
 dimension2d<u32> getScreenResolution(void){
+
     // create a NULL device to detect screen resolution
     IrrlichtDevice *nulldevice = createDevice(video::EDT_NULL);
     core::dimension2d<u32> deskres = nulldevice->getVideoModeList()->getDesktopResolution();

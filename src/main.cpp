@@ -34,8 +34,7 @@ int main(int argc, char **argv){
     //Ray.init(OGL, 800,600, false, false, false);
     //Ray.init(OGL, res.Width, res.Height, true, false, false);
 
-    dimension2d<u32> res;
-    res = getScreenResolution();
+    dimension2d<u32> res = getScreenResolution();
 
     SIrrlichtCreationParameters params;
     params.AntiAlias = 4;
@@ -48,7 +47,6 @@ int main(int argc, char **argv){
     params.WindowSize = res;
 
     irrlicht = createDeviceEx(params);
-
     Video=irrlicht->getVideoDriver();
     Scene=irrlicht->getSceneManager();
     Gui=irrlicht->getGUIEnvironment();
@@ -62,18 +60,37 @@ int main(int argc, char **argv){
 
     /* Window created */
 
-    irrlicht->getFileSystem()->changeWorkingDirectoryTo("C:\\Gibson\\");
+    //irrlicht->getFileSystem()->changeWorkingDirectoryTo("C:\\Gibson\\");
 
     Ray.hideCursor();
     Video->setAllowZWriteOnTransparent(true);
 
-    IPostProc* ppRenderer = new CRendererPostProc( Scene, dimension2du( 1024, 1024 ), true, true, SColor( 255u, 0,10,15 ) );
+    IPostProc* ppRenderer = new CRendererPostProc(
+        Scene,
+        dimension2du(1024, 1024),
+        true,
+        true,
+        SColor(255u, 0, 10, 15)
+    );
 
     // When setting up the effect, the parameters are:
     // Input, size of output, effect ID (see CEffectPostProc.h for full
     // list), effect parameters (in this case, blur size)
-    //CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_BLOOM, 3, 0.005, 1.5);
-    //CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_INVERT);
+    /*
+    CEffectPostProc* ppBlur = new CEffectPostProc(
+        ppRenderer,
+        dimension2du(1024, 1024),
+        PP_BLOOM,
+        3,
+        0.005,
+        1.5
+    );
+    CEffectPostProc* ppBlur = new CEffectPostProc(
+        ppRenderer,
+        dimension2du(1024, 1024),
+        PP_INVERT
+    );
+    */
     CEffectPostProc* ppBlur = new CEffectPostProc(
         ppRenderer,
         dimension2du(1024, 1024),
@@ -91,13 +108,13 @@ int main(int argc, char **argv){
 
     //Ray.importZipFile("D:\\gibson\\data.zip");
 
+    // Set window title
     Ray.setWindowTitle(gibson_version);
 
+    // Draw loading image
     Image loading;
     loading.loadImg(loading_image);
-
     Ray.Render.clearScreen(0,0,0,1);
-
     loading.draw((res.Width/2) - (loading.w/2), (res.Height/2) - (loading.h/2));
 
     Gui->drawAll();
