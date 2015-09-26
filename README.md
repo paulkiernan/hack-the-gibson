@@ -32,7 +32,7 @@ Pull requests welcome!
 
 ```bash
 # Install the Irrlicht 3d engine via homebrew and dependencies
-brew install irrlicht glfw3 glew
+brew install irrlicht
 
 # Build the makefile deps
 cd src

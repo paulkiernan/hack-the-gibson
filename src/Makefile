@@ -2,65 +2,61 @@
 #
 # 'make'        build executable file 'gibson'
 # 'make clean'  removes all .o and executable files
-#
 
+# compiler:
 CC=g++
 
 # compiler flags:
-#   -g    adds debugging information to the executable file
+#  -g    adds debugging information to the executable file
 #  -Wall turns on most, but not all, compiler warnings
 CFLAGS=-g -Wall
 
+# include paths:
+#   NOTE: you might have to adjust the path to wherever your irrlicht
+#   library is installed
 INCLUDE_DIRS=\
 	include \
-	/usr/local/include \
-	/usr/local/Cellar/irrlicht/1.8.1/include/irrlicht/  # You might have to adjust this for your machine
+	/usr/local/Cellar/irrlicht/1.8.1/include/irrlicht/
 INCLUDES=$(foreach d, $(INCLUDE_DIRS), -I$d)
 
 # define any libraries to link into executable:
-#   if I want to link in libraries (libx.so or libx.a) I use the -llibname 
-#   option, something like (this will link in libmylib.so and libm.so:
 LIB_FILES=/usr/local/Cellar/irrlicht/1.8.1/lib/libIrrlicht.a
-LIB_PATHS=/usr/local/lib
-LIB_NAMES=\
-	glfw3 \
-	glew
-LIBS=\
-	$(foreach f, $(LIB_FILES), $f) \
-	$(foreach d, $(LIB_PATHS), -L$d) \
-	$(foreach n, $(LIB_NAMES), -l$n)
-
-
-# define any frameworks we'll be using
+LIB_PATHS=
+LIB_NAMES=
 FRAMEWORK_NAMES=\
 	OpenGL \
 	Cocoa \
 	IOKit
-LFLAGS=$(foreach n, $(FRAMEWORK_NAMES), -framework $n)
+LIBS=\
+	$(foreach f, $(LIB_FILES), $f) \
+	$(foreach d, $(LIB_PATHS), -L$d) \
+	$(foreach n, $(LIB_NAMES), -l$n) \
+	$(foreach n, $(FRAMEWORK_NAMES), -framework $n)
+
 
 # define the c source files
 SRCS=\
-	main.cpp \
 	PathCreator.cpp \
+	cam.cpp \
+	main.cpp \
 	pulse.cpp \
 	room.cpp \
-	cam.cpp \
-	include/gui.cpp \
-	include/camera.cpp \
-	include/HardwareSkinCallback.cpp \
-	include/events.cpp \
-	include/globals.cpp \
-	include/lighting.cpp \
-	include/mesh.cpp \
-	include/ray3d.cpp \
-	include/render.cpp \
 	include/Effects/CEffectPostProc.cpp \
 	include/Effects/CLensFlarePostProc.cpp \
 	include/Effects/CRendererPostProc.cpp \
 	include/Effects/CSplitPostProc.cpp \
 	include/Effects/CTransitionPostProc.cpp \
 	include/Effects/CWaterPostProc.cpp \
-	include/Effects/IPostProc.cpp
+	include/Effects/IPostProc.cpp \
+	include/HardwareSkinCallback.cpp \
+	include/camera.cpp \
+	include/events.cpp \
+	include/globals.cpp \
+	include/gui.cpp \
+	include/lighting.cpp \
+	include/mesh.cpp \
+	include/ray3d.cpp \
+	include/render.cpp
 
 # define the C object files 
 #
@@ -70,7 +66,7 @@ SRCS=\
 # Below we are replacing the suffix .cpp of all words in the macro SRCS
 # with the .o suffix
 #
-OBJS = $(SRCS:.cpp=.o)
+OBJS=$(SRCS:.cpp=.o)
 
 MAIN=gibson
 
