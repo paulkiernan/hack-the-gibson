@@ -86,3 +86,4 @@ $(MAIN): $(OBJS)
 clean:
 	rm *.o $(MAIN)
 	rm include/*.o
+	rm include/Effects/*.o
