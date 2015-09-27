@@ -17,6 +17,7 @@
 */
 
 #include "pulse.h"
+#include "globals.h"
 
 f32 getRand(f32 low, f32 high)
 {
@@ -34,8 +35,8 @@ void PulseSet::init(int number)
 	for(i=0; i < pulseCount; i++)
 	{
 		pulse[i].createMesh();
-		pulse[i].loadMesh("pulse.obj", false, false);
-		pulse[i].loadTex("pulse.png");
+		pulse[i].loadMesh(gibson_config::pulse_mesh, false, false);
+		pulse[i].loadTex(gibson_config::pulse_texture);
 		pulse[i].setLit(false);
 		pulse[i].setPosition(TOWER_DIST * int(getRand(-TOWER_XSIZE, TOWER_XSIZE)), getRand(1,MAX_PULSE_HEIGHT), \
 				(TOWER_DIST * int(getRand(-TOWER_YSIZE, TOWER_YSIZE)) + TOWER_DIST/2));

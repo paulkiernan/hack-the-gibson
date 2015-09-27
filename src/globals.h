@@ -26,11 +26,13 @@
  */
 namespace gibson_config{
 
-    char* room_mesh = "media/room.3ds";
-    char* room_texture = "media/room.png";
-    char* towers_mesh = "media/towers.obj";
-    char* dark_towers_template_filename = "media/towers1-%d.png";
-    char* light_towers_template_filename = "media/towers2-%d.png";
+    char* const room_mesh = "media/room.3ds";
+    char* const room_texture = "media/room.png";
+    char* const towers_mesh = "media/towers.obj";
+    char* const dark_towers_template_filename = "media/towers1-%d.png";
+    char* const light_towers_template_filename = "media/towers2-%d.png";
+    char* const pulse_mesh = "media/pulse.obj";
+    char* const pulse_texture = "media/pulse.png";
 };
 
 #endif /* GLOBALS_H_ */
