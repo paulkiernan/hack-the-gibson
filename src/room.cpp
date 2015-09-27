@@ -19,12 +19,12 @@
 */
 
 #include "room.h"
+#include "globals.h"
 
-void Room::init()
-{
+void Room::init(){
     mesh.createMesh();
-    mesh.loadMesh("room.3ds", false, false);
-    mesh.loadTex("room.png");
+    mesh.loadMesh(gibson_config::room_mesh, false, false);
+    mesh.loadTex(gibson_config::room_texture);
     //mesh.setScale(-1,-1,-1);
     mesh.setLit(false);
     mesh.setPosition(0,0,0);
@@ -33,7 +33,7 @@ void Room::init()
     mesh.sceneNode->setMaterialFlag(EMF_TRILINEAR_FILTER, true);
 
     towers[0].createMesh();
-    towers[0].loadMesh("towers.obj", false, false);
+    towers[0].loadMesh(gibson_config::towers_mesh, false, false);
     towers[0].setLit(false);
     towers[0].sceneNode->setMaterialType(EMT_TRANSPARENT_ALPHA_CHANNEL);
     towers[0].sceneNode->setMaterialFlag(EMF_TRILINEAR_FILTER, true);
@@ -50,21 +50,15 @@ void Room::init()
 
     towers[0].setPosition(x + 9.125,14,z);
 
-    for(int j=0; j < TOWER_TEXTURE_COUNT; j++)
-    {
+    for(int j=0; j < TOWER_TEXTURE_COUNT; j++){
         char filename[100];
-
-        sprintf(filename, "towers1-%d.png", j+1);
-
+        sprintf(filename, gibson_config::dark_towers_template_filename, j+1);
         towerTex[j] = Video->getTexture(filename);
     }
 
-    for(int j=0; j < TOWER_TEXTURE_COUNT; j++)
-    {
+    for(int j=0; j < TOWER_TEXTURE_COUNT; j++){
         char filename[100];
-
-        sprintf(filename, "towers2-%d.png", j+1);
-
+        sprintf(filename, gibson_config::light_towers_template_filename, j+1);
         towerTex[j + TOWER_TEXTURE_COUNT] = Video->getTexture(filename);
     }
 
