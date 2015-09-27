@@ -21,57 +21,57 @@
 
 f32 getRand(f32 low, f32 high)
 {
-	return ((f32(rand()) / f32(RAND_MAX)) * (high - low)) + low;
+    return ((f32(rand()) / f32(RAND_MAX)) * (high - low)) + low;
 }
 
 void PulseSet::init(int number)
 {
-	pulse = new Entity[number];
-	speed = new f32[number];
+    pulse = new Entity[number];
+    speed = new f32[number];
 
-	pulseCount = number;
+    pulseCount = number;
 
-	int i;
-	for(i=0; i < pulseCount; i++)
-	{
-		pulse[i].createMesh();
-		pulse[i].loadMesh(gibson_config::pulse_mesh, false, false);
-		pulse[i].loadTex(gibson_config::pulse_texture);
-		pulse[i].setLit(false);
-		pulse[i].setPosition(TOWER_DIST * int(getRand(-TOWER_XSIZE, TOWER_XSIZE)), getRand(1,MAX_PULSE_HEIGHT), \
-				(TOWER_DIST * int(getRand(-TOWER_YSIZE, TOWER_YSIZE)) + TOWER_DIST/2));
-		pulse[i].translateGlobal(getRand(-TOWER_DIST/4, TOWER_DIST/4),0,getRand(-TOWER_DIST/4, TOWER_DIST/4));
+    int i;
+    for(i=0; i < pulseCount; i++)
+    {
+        pulse[i].createMesh();
+        pulse[i].loadMesh(gibson_config::pulse_mesh, false, false);
+        pulse[i].loadTex(gibson_config::pulse_texture);
+        pulse[i].setLit(false);
+        pulse[i].setPosition(TOWER_DIST * int(getRand(-TOWER_XSIZE, TOWER_XSIZE)), getRand(1,MAX_PULSE_HEIGHT), \
+                (TOWER_DIST * int(getRand(-TOWER_YSIZE, TOWER_YSIZE)) + TOWER_DIST/2));
+        pulse[i].translateGlobal(getRand(-TOWER_DIST/4, TOWER_DIST/4),0,getRand(-TOWER_DIST/4, TOWER_DIST/4));
 
-		pulse[i].sceneNode->setMaterialType(EMT_TRANSPARENT_ALPHA_CHANNEL);
-		pulse[i].sceneNode->setMaterialFlag(EMF_TRILINEAR_FILTER, true);
-		pulse[i].sceneNode->setMaterialFlag(EMF_ANISOTROPIC_FILTER, true);
-		pulse[i].setScale(2,2,4);
-		pulse[i].setRotation(0,90 * int(getRand(0,4)),0);
+        pulse[i].sceneNode->setMaterialType(EMT_TRANSPARENT_ALPHA_CHANNEL);
+        pulse[i].sceneNode->setMaterialFlag(EMF_TRILINEAR_FILTER, true);
+        pulse[i].sceneNode->setMaterialFlag(EMF_ANISOTROPIC_FILTER, true);
+        pulse[i].setScale(2,2,4);
+        pulse[i].setRotation(0,90 * int(getRand(0,4)),0);
 
-		speed[i] = getRand(MIN_PULSE_SPEED, MAX_PULSE_SPEED);
-		//speed[i] = 0;
-	}
+        speed[i] = getRand(MIN_PULSE_SPEED, MAX_PULSE_SPEED);
+        //speed[i] = 0;
+    }
 }
 
 void PulseSet::update()
 {
-	int i;
-	for(i=0; i < pulseCount; i++)
-	{
-		pulse[i].translate(0,0,-delta * speed[i]);
+    int i;
+    for(i=0; i < pulseCount; i++)
+    {
+        pulse[i].translate(0,0,-delta * speed[i]);
 
-		if(pulse[i].getPosition().X >= MAX_PULSE_X || pulse[i].getPosition().Z >= MAX_PULSE_Z || \
-				pulse[i].getPosition().X <= -MAX_PULSE_X || pulse[i].getPosition().Z <= -MAX_PULSE_Z)
-		{
+        if(pulse[i].getPosition().X >= MAX_PULSE_X || pulse[i].getPosition().Z >= MAX_PULSE_Z || \
+                pulse[i].getPosition().X <= -MAX_PULSE_X || pulse[i].getPosition().Z <= -MAX_PULSE_Z)
+        {
 
-			pulse[i].setPosition(TOWER_DIST * int(getRand(-TOWER_XSIZE, TOWER_XSIZE)), getRand(1,MAX_PULSE_HEIGHT), \
-										(TOWER_DIST * int(getRand(-TOWER_YSIZE, TOWER_YSIZE)) + TOWER_DIST/2));
-			pulse[i].translateGlobal(getRand(-TOWER_DIST/4, TOWER_DIST/4),0,getRand(-TOWER_DIST/4, TOWER_DIST/4));
+            pulse[i].setPosition(TOWER_DIST * int(getRand(-TOWER_XSIZE, TOWER_XSIZE)), getRand(1,MAX_PULSE_HEIGHT), \
+                                        (TOWER_DIST * int(getRand(-TOWER_YSIZE, TOWER_YSIZE)) + TOWER_DIST/2));
+            pulse[i].translateGlobal(getRand(-TOWER_DIST/4, TOWER_DIST/4),0,getRand(-TOWER_DIST/4, TOWER_DIST/4));
 
-			pulse[i].setRotation(0,90 * int(getRand(0,4)),0);
-			speed[i] = getRand(MIN_PULSE_SPEED, MAX_PULSE_SPEED);
-			//speed[i] = 0;
-		}
+            pulse[i].setRotation(0,90 * int(getRand(0,4)),0);
+            speed[i] = getRand(MIN_PULSE_SPEED, MAX_PULSE_SPEED);
+            //speed[i] = 0;
+        }
 
-	}
+    }
 }
