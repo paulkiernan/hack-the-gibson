@@ -38,3 +38,6 @@ Makefile.bak
 
 # Project binary
 src/gibson
+MacBuild/build
+MacBuild/gibson.xcodeproj/xcuserdata
+MacBuild/gibson.xcodeproj/project.xcworkspace
