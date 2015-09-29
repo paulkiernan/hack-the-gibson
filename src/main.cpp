@@ -33,7 +33,6 @@ char* loading_image = "media/loading.png";
 int main(int argc, char **argv){
 
     //Ray.init(OGL, 800,600, false, false, false);
-    //Ray.init(OGL, res.Width, res.Height, true, false, false);
 
     dimension2d<u32> res = getScreenResolution();
 
@@ -47,17 +46,7 @@ int main(int argc, char **argv){
     params.Stencilbuffer = false;
     params.WindowSize = res;
 
-    irrlicht = createDeviceEx(params);
-    Video=irrlicht->getVideoDriver();
-    Scene=irrlicht->getSceneManager();
-    Gui=irrlicht->getGUIEnvironment();
-
-    // demand 32 bit textures
-    Video->setTextureCreationFlag(ETCF_ALWAYS_32_BIT, true);
-
-    // 2d image filtering
-    Video->getMaterial2D().TextureLayer[0].BilinearFilter=true;
-    Video->getMaterial2D().AntiAliasing=video::EAAM_FULL_BASIC;
+    Ray.init(params);
 
     /* Window created */
 
@@ -232,11 +221,9 @@ int main(int argc, char **argv){
     cout << "Made it to end! Attempting Ray.exit..." << endl;
 
     Ray.exit();
-
-    exit(0);
-
     cout << "Ray3D is dead!" << endl;
 
+    exit(0);
 
     // This shouldn't be necessary
     return 0;
