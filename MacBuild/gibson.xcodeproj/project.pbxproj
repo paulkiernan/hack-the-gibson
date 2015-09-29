@@ -1,0 +1,267 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		863E917D1BBB1E8500FAAA6A /* gibsonView.h in Headers */ = {isa = PBXBuildFile; fileRef = 863E917C1BBB1E8500FAAA6A /* gibsonView.h */; };
+		863E917F1BBB1E8500FAAA6A /* gibsonView.m in Sources */ = {isa = PBXBuildFile; fileRef = 863E917E1BBB1E8500FAAA6A /* gibsonView.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		863E91791BBB1E8500FAAA6A /* gibson.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = gibson.saver; sourceTree = BUILT_PRODUCTS_DIR; };
+		863E917C1BBB1E8500FAAA6A /* gibsonView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = gibsonView.h; sourceTree = "<group>"; };
+		863E917E1BBB1E8500FAAA6A /* gibsonView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = gibsonView.m; sourceTree = "<group>"; };
+		863E91801BBB1E8500FAAA6A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		863E91751BBB1E8500FAAA6A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		863E916F1BBB1E8500FAAA6A = {
+			isa = PBXGroup;
+			children = (
+				863E917B1BBB1E8500FAAA6A /* gibson */,
+				863E917A1BBB1E8500FAAA6A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		863E917A1BBB1E8500FAAA6A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				863E91791BBB1E8500FAAA6A /* gibson.saver */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		863E917B1BBB1E8500FAAA6A /* gibson */ = {
+			isa = PBXGroup;
+			children = (
+				863E917C1BBB1E8500FAAA6A /* gibsonView.h */,
+				863E917E1BBB1E8500FAAA6A /* gibsonView.m */,
+				863E91801BBB1E8500FAAA6A /* Info.plist */,
+			);
+			path = gibson;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXHeadersBuildPhase section */
+		863E91761BBB1E8500FAAA6A /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				863E917D1BBB1E8500FAAA6A /* gibsonView.h in Headers */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
+/* Begin PBXNativeTarget section */
+		863E91781BBB1E8500FAAA6A /* gibson */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 863E91831BBB1E8500FAAA6A /* Build configuration list for PBXNativeTarget "gibson" */;
+			buildPhases = (
+				863E91741BBB1E8500FAAA6A /* Sources */,
+				863E91751BBB1E8500FAAA6A /* Frameworks */,
+				863E91761BBB1E8500FAAA6A /* Headers */,
+				863E91771BBB1E8500FAAA6A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = gibson;
+			productName = gibson;
+			productReference = 863E91791BBB1E8500FAAA6A /* gibson.saver */;
+			productType = "com.apple.product-type.bundle";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		863E91701BBB1E8500FAAA6A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 0700;
+				ORGANIZATIONNAME = "Paul Kiernan";
+				TargetAttributes = {
+					863E91781BBB1E8500FAAA6A = {
+						CreatedOnToolsVersion = 7.0;
+					};
+				};
+			};
+			buildConfigurationList = 863E91731BBB1E8500FAAA6A /* Build configuration list for PBXProject "gibson" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = English;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = 863E916F1BBB1E8500FAAA6A;
+			productRefGroup = 863E917A1BBB1E8500FAAA6A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				863E91781BBB1E8500FAAA6A /* gibson */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		863E91771BBB1E8500FAAA6A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		863E91741BBB1E8500FAAA6A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				863E917F1BBB1E8500FAAA6A /* gibsonView.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		863E91811BBB1E8500FAAA6A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
+				MTL_ENABLE_DEBUG_INFO = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		863E91821BBB1E8500FAAA6A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		863E91841BBB1E8500FAAA6A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = gibson/Info.plist;
+				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
+				PRODUCT_BUNDLE_IDENTIFIER = paulynomial.gibson;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				WRAPPER_EXTENSION = saver;
+			};
+			name = Debug;
+		};
+		863E91851BBB1E8500FAAA6A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = gibson/Info.plist;
+				INSTALL_PATH = "$(HOME)/Library/Screen Savers";
+				PRODUCT_BUNDLE_IDENTIFIER = paulynomial.gibson;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				WRAPPER_EXTENSION = saver;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		863E91731BBB1E8500FAAA6A /* Build configuration list for PBXProject "gibson" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				863E91811BBB1E8500FAAA6A /* Debug */,
+				863E91821BBB1E8500FAAA6A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		863E91831BBB1E8500FAAA6A /* Build configuration list for PBXNativeTarget "gibson" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				863E91841BBB1E8500FAAA6A /* Debug */,
+				863E91851BBB1E8500FAAA6A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 863E91701BBB1E8500FAAA6A /* Project object */;
+}
