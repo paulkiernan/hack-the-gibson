@@ -39,39 +39,32 @@ using namespace std;
 #include "camera.h"
 
 
-/* Definition of the ray class which is used for initialization and miscalaneous things */
-class RayTyp
-{
+/* Definition of the ray class which is used for initialization and
+ * miscalaneous things */
+class RayTyp{
 public:
-  // renderer
-  RenderTyp Render;
+    // renderer
+    RenderTyp Render;
 
-  RayTyp();
+    RayTyp();
 
-  /* for initializing video */
-  void init(E_DRIVER_TYPE driver, int w, int h, bool fs=false, bool shadows=true, bool hwSkin=true);
+    /* for initializing video */
+    void init(SIrrlichtCreationParameters params);
 
+    void setWindowTitle(wchar_t *title);
 
-  void setWindowTitle(wchar_t *title);
+    void hideCursor();
+    void showCursor();
+    void placeCursor(f32 x, f32 y);
 
-  void hideCursor();
-  void showCursor();
-  void placeCursor(f32 x, f32 y);
+    void importZipFile(char *filename);
 
+    // returns weather or not ray3d wants to be running
+    bool running(void);
 
+    void exit(void);
 
-  void importZipFile(char *filename);
-
-  // returns weather or not ray3d wants to be running
-  bool running(void);
-
-
-
-  void exit(void);
-
-
-  u32 getTime();
-
+    u32 getTime();
 };
 
 extern RayTyp Ray;

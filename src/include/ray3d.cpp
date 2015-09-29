@@ -20,12 +20,11 @@
 
 #include "ray3d.h"
 
-  RayTyp::RayTyp()  {  }
+RayTyp::RayTyp()  {  }
 
-  /* for initializing video */
-  void RayTyp::init(E_DRIVER_TYPE driver, int w, int h, bool fs, bool shadows, bool hwSkin)
-  {
-    irrlicht=createDevice(driver, dimension2d<u32>(w,h), 32, fs, shadows, false, &rcv);
+/* for initializing video */
+void RayTyp::init(SIrrlichtCreationParameters params){
+    irrlicht = createDeviceEx(params);
 
     Video=irrlicht->getVideoDriver();
     Scene=irrlicht->getSceneManager();
@@ -41,49 +40,39 @@
     Video->getMaterial2D().TextureLayer[0].BilinearFilter=true;
     Video->getMaterial2D().AntiAliasing=video::EAAM_FULL_BASIC;
 
-
     // set skinning mode
-    useHwSkinning = hwSkin;
-  }
+    useHwSkinning = true;
+}
 
-  void RayTyp::setWindowTitle(wchar_t *title)
-  {
-	irrlicht->setWindowCaption(title);
-  }
+void RayTyp::setWindowTitle(wchar_t *title){
+    irrlicht->setWindowCaption(title);
+}
 
-  void RayTyp::hideCursor()
-  {
+void RayTyp::hideCursor(){
     irrlicht->getCursorControl()->setVisible(false);
-  }
-  void RayTyp::showCursor()
-  {
-	 irrlicht->getCursorControl()->setVisible(true);
-  }
-  void RayTyp::placeCursor(f32 x, f32 y)
-  {
+}
+void RayTyp::showCursor(){
+    irrlicht->getCursorControl()->setVisible(true);
+}
+void RayTyp::placeCursor(f32 x, f32 y){
     irrlicht->getCursorControl()->setPosition(x,y);
-  }
+}
 
-  void RayTyp::importZipFile(char *filename)
-  {
+void RayTyp::importZipFile(char *filename){
     irrlicht->getFileSystem()->addZipFileArchive(filename);
-  }
+}
 
-  // returns weather or not ray3d wants to be running
-  bool RayTyp::running(void)
-  {
+// returns weather or not ray3d wants to be running
+bool RayTyp::running(void){
     return irrlicht->run();
-  }
+}
 
-
-  void RayTyp::exit(void)
-  {
+void RayTyp::exit(void){
     irrlicht->drop();
-  }
+}
 
-  u32 RayTyp::getTime()
-  {
+u32 RayTyp::getTime(){
     return irrlicht->getTimer()->getTime();
-  }
+}
 
 RayTyp Ray;
