@@ -9,14 +9,13 @@ using namespace io;
 using namespace gui;
 
 
-HWSkinCB::HWSkinCB()
-{
-	delay=0; //(17 ms = appr 1/60th of a second = 60 FPS)	
+HWSkinCB::HWSkinCB(){
+    delay=0; //(17 ms = appr 1/60th of a second = 60 FPS)
 }
 
-HWSkinCB::~HWSkinCB()
-{
-	this->drop();
+HWSkinCB::~HWSkinCB(){
+    // NOTE: @@PK: should definitely fix this in the future!
+    //this->drop();
 }
 
 HWSkinCB* HWSkinCB::getInstance()
