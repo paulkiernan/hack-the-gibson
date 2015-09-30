@@ -31,7 +31,7 @@ Pull requests welcome!
 # Installation
 
 ```bash
-# Install the Irrlicht 3d engine via homebrew and dependencies
+# Install the Irrlicht 3d engine via homebrew
 brew install irrlicht
 
 # Build the makefile deps
@@ -45,7 +45,6 @@ make
 # Known Issues
 
 1. This isn't an actual screensaver installable on a mac. (YET!)
-2. The thing segfaults on exit. (Patience, patience...)
 
 
 # Credit
