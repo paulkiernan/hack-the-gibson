@@ -7,9 +7,23 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		860095761BC5A39C00E7A484 /* gibson.saver in CopyFiles */ = {isa = PBXBuildFile; fileRef = 863E91791BBB1E8500FAAA6A /* gibson.saver */; };
 		863E917D1BBB1E8500FAAA6A /* gibsonView.h in Headers */ = {isa = PBXBuildFile; fileRef = 863E917C1BBB1E8500FAAA6A /* gibsonView.h */; };
 		863E917F1BBB1E8500FAAA6A /* gibsonView.m in Sources */ = {isa = PBXBuildFile; fileRef = 863E917E1BBB1E8500FAAA6A /* gibsonView.m */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		860095751BC5A39000E7A484 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 12;
+			dstPath = "~/Library/Screen Savers";
+			dstSubfolderSpec = 0;
+			files = (
+				860095761BC5A39C00E7A484 /* gibson.saver in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		863E91791BBB1E8500FAAA6A /* gibson.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = gibson.saver; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -77,6 +91,7 @@
 				863E91751BBB1E8500FAAA6A /* Frameworks */,
 				863E91761BBB1E8500FAAA6A /* Headers */,
 				863E91771BBB1E8500FAAA6A /* Resources */,
+				860095751BC5A39000E7A484 /* CopyFiles */,
 			);
 			buildRules = (
 			);
@@ -260,6 +275,7 @@
 				863E91851BBB1E8500FAAA6A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

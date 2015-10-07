@@ -8,6 +8,8 @@
 
 #import <ScreenSaver/ScreenSaver.h>
 
-@interface gibsonView : ScreenSaverView
-
+@interface gibsonView : ScreenSaverView {
+    // keep track of whether or not drawRect: should erase the background
+    BOOL mDrawBackground;
+}
 @end
