@@ -68,7 +68,9 @@ bool RayTyp::running(void){
 }
 
 void RayTyp::exit(void){
-    irrlicht->drop();
+    // Something weird is going on with reference counts
+    // TODO: figure out what's wrong with calling drop()
+    //irrlicht->drop();
 }
 
 u32 RayTyp::getTime(){
