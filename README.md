@@ -1,5 +1,8 @@
 # The Gibson
 
+# Credit Where Credit Is Due
+This is a fork of a repo archived by someone that cared enough to keep it alive - I have merely AI slop coded my way to making it work for my purposes; please credit the original maintainers of this work, paulkiernan and John Serafino. They are truly elite.
+
 > "Mess with the best, die like the rest." - Dade Murphey a.k.a. Crash
 > Override a.k.a. Zero Cool
 
