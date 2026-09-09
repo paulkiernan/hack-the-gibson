@@ -93,9 +93,21 @@ SAVER_OBJS = $(SAVER_MM:.mm=.o)
 PREVIEW_OBJ = $(PREVIEW_MM:.mm=.o)
 MAIN = gibson
 PREVIEW = scn_preview
+METAL_SRC = scenekit/GibsonShaders.metal
+METAL_AIR = scenekit/GibsonShaders.air
+METALLIB = Gibson.metallib
+XCODE_BETA_DEV := /Applications/Xcode-beta.app/Contents/Developer
+METAL_TOOLCHAIN := $(XCODE_BETA_DEV)/Toolchains/XcodeDefault.xctoolchain/usr/bin
+ifneq ($(wildcard $(METAL_TOOLCHAIN)/metal),)
+  METAL := $(METAL_TOOLCHAIN)/metal
+  METALLIB_TOOL := $(METAL_TOOLCHAIN)/metallib
+else
+  METAL ?= xcrun -sdk macosx metal
+  METALLIB_TOOL ?= xcrun -sdk macosx metallib
+endif
 
 SCN_INCLUDES = -I. -Iscenekit -Isaver
-SCN_FRAMEWORKS = SceneKit ModelIO QuartzCore Metal Cocoa Foundation AppKit CoreGraphics
+SCN_FRAMEWORKS = SceneKit ModelIO QuartzCore Metal MetalKit Cocoa Foundation AppKit CoreGraphics
 SAVER_SCN_LIBS = \
 	-Wl,-ObjC \
 	$(foreach n,$(SCN_FRAMEWORKS) ScreenSaver,-framework $n)
@@ -130,21 +142,36 @@ saver/GibsonSaverView.o: saver/GibsonSaverView.mm
 run: $(MAIN)
 	./$(MAIN)
 
+$(METALLIB): $(METAL_SRC)
+	@if [ -x "$(METAL)" ]; then \
+		if $(METAL) -c $(METAL_SRC) -o $(METAL_AIR) -mmacosx-version-min=$(SAVER_MIN_OS) 2>/dev/null; then \
+			$(METALLIB_TOOL) $(METAL_AIR) -o $(METALLIB); \
+		else \
+			echo "metal toolchain unavailable; SceneKit will compile $(METAL_SRC) at runtime"; \
+		fi; \
+	else \
+		echo "metal compiler not found; SceneKit will compile $(METAL_SRC) at runtime"; \
+	fi
+
 $(PREVIEW): $(SCN_OBJS) $(PREVIEW_OBJ)
 	$(CXX) $(CXXFLAGS) -fobjc-arc $(SCN_INCLUDES) -o $(PREVIEW) $(SCN_OBJS) $(PREVIEW_OBJ) $(PREVIEW_LIBS)
+	-@$(MAKE) $(METALLIB)
 
 scn: $(PREVIEW)
 	./$(PREVIEW)
 
 saver: $(SAVER_BIN)
 
-$(SAVER_BIN): $(SCN_OBJS) $(SAVER_OBJS) saver/Info.plist $(ROOT)/config.txt
+$(SAVER_BIN): $(SCN_OBJS) $(SAVER_OBJS) saver/Info.plist $(ROOT)/config.txt $(METAL_SRC)
 	rm -rf "$(SAVER_DIR)"
 	mkdir -p "$(SAVER_DIR)/Contents/MacOS" "$(SAVER_DIR)/Contents/Resources/media"
 	cp saver/Info.plist "$(SAVER_DIR)/Contents/Info.plist"
 	printf 'BNDL????' > "$(SAVER_DIR)/Contents/PkgInfo"
 	rsync -a --exclude '*.xcf' --exclude 'screenshot*' "$(ROOT)/media/" "$(SAVER_DIR)/Contents/Resources/media/"
 	cp "$(ROOT)/config.txt" "$(SAVER_DIR)/Contents/Resources/config.txt"
+	cp "$(METAL_SRC)" "$(SAVER_DIR)/Contents/Resources/GibsonShaders.metal"
+	-@$(MAKE) $(METALLIB)
+	@if [ -f "$(METALLIB)" ]; then cp "$(METALLIB)" "$(SAVER_DIR)/Contents/Resources/Gibson.metallib"; fi
 	$(CXX) $(CXXFLAGS) -fobjc-arc -mmacosx-version-min=$(SAVER_MIN_OS) -bundle \
 		-o "$(SAVER_BIN)" $(SCN_OBJS) $(SAVER_OBJS) $(SAVER_SCN_LIBS)
 	@if command -v codesign >/dev/null 2>&1; then \
@@ -174,4 +201,5 @@ uninstall-saver:
 
 clean:
 	rm -f $(SCENE_OBJS) $(APP_OBJS) $(SAVER_OBJS) $(SCN_OBJS) $(PREVIEW_OBJ) $(MAIN) $(PREVIEW)
+	rm -f $(METAL_AIR) $(METALLIB)
 	rm -rf "$(SAVER_DIR)"

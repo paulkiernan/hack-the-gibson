@@ -1,11 +1,14 @@
 #import "GibsonSCNScene.h"
 #import "GibsonSCNCamera.h"
 
+#import <Metal/Metal.h>
+#import <MetalKit/MetalKit.h>
 #import <ModelIO/ModelIO.h>
 #import <SceneKit/ModelIO.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <vector>
@@ -52,12 +55,160 @@ static SCNGeometry *gibson_geometry_from_obj(NSURL *url)
     return nil;
 }
 
+static void gibson_metal_log(NSString *msg)
+{
+    NSLog(@"The Gibson Metal: %@", msg);
+    FILE *fp = fopen("/tmp/gibson-saver.log", "a");
+    if (fp)
+    {
+        fprintf(fp, "%s\n", msg.UTF8String);
+        fclose(fp);
+    }
+}
+
+static NSURL *gibson_shader_file_url(NSString *name, NSString *ext)
+{
+    NSMutableArray<NSURL *> *candidates = [NSMutableArray array];
+    NSBundle *classBundle = [NSBundle bundleForClass:[GibsonSCNScene class]];
+    NSURL *fromClass = [classBundle URLForResource:name withExtension:ext];
+    if (fromClass)
+        [candidates addObject:fromClass];
+    NSBundle *main = [NSBundle mainBundle];
+    NSURL *fromMain = [main URLForResource:name withExtension:ext];
+    if (fromMain)
+        [candidates addObject:fromMain];
+
+    NSMutableArray<NSString *> *dirs = [NSMutableArray array];
+    auto addDir = ^(NSString *dir) {
+        if (dir.length)
+            [dirs addObject:dir];
+    };
+    addDir(classBundle.bundlePath);
+    addDir(classBundle.resourcePath);
+    addDir(main.bundlePath);
+    addDir(main.resourcePath);
+    addDir([[NSFileManager defaultManager] currentDirectoryPath]);
+    addDir([[[NSFileManager defaultManager] currentDirectoryPath]
+               stringByAppendingPathComponent:@"src"]);
+    addDir([[[[NSFileManager defaultManager] currentDirectoryPath]
+                stringByAppendingPathComponent:@"src"]
+               stringByAppendingPathComponent:@"scenekit"]);
+    NSString *exe = [[NSProcessInfo processInfo] arguments].firstObject;
+    if (exe.length)
+    {
+        NSString *exeDir = [exe stringByDeletingLastPathComponent];
+        addDir(exeDir);
+        addDir([exeDir stringByAppendingPathComponent:@"scenekit"]);
+    }
+
+    NSString *filename = [name stringByAppendingPathExtension:ext];
+    for (NSString *dir in dirs)
+        [candidates addObject:[NSURL fileURLWithPath:
+            [[dir stringByAppendingPathComponent:filename] stringByStandardizingPath]]];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSURL *url in candidates)
+    {
+        if (url.isFileURL && [fm fileExistsAtPath:url.path])
+            return url;
+    }
+    return nil;
+}
+
+static id<MTLLibrary> gibson_shader_library(void)
+{
+    static id<MTLLibrary> library;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        if (!device)
+        {
+            gibson_metal_log(@"no Metal device");
+            return;
+        }
+        NSError *err = nil;
+        NSURL *libURL = gibson_shader_file_url(@"Gibson", @"metallib");
+        if (libURL)
+        {
+            library = [device newLibraryWithURL:libURL error:&err];
+            if (library)
+            {
+                gibson_metal_log([NSString stringWithFormat:@"loaded %@", libURL.path]);
+                return;
+            }
+            gibson_metal_log([NSString stringWithFormat:@"metallib load failed: %@", err]);
+            err = nil;
+        }
+        NSURL *srcURL = gibson_shader_file_url(@"GibsonShaders", @"metal");
+        if (!srcURL)
+        {
+            gibson_metal_log(@"GibsonShaders.metal not found");
+            return;
+        }
+        NSString *source = [NSString stringWithContentsOfURL:srcURL
+                                                    encoding:NSUTF8StringEncoding
+                                                       error:&err];
+        if (!source)
+        {
+            gibson_metal_log([NSString stringWithFormat:@"could not read %@: %@", srcURL.path, err]);
+            return;
+        }
+        MTLCompileOptions *opts = [[MTLCompileOptions alloc] init];
+        library = [device newLibraryWithSource:source options:opts error:&err];
+        if (!library)
+            gibson_metal_log([NSString stringWithFormat:@"Metal compile failed: %@", err]);
+        else
+            gibson_metal_log([NSString stringWithFormat:@"compiled %@", srcURL.path]);
+    });
+    return library;
+}
+
 static void gibson_bind_material(SCNNode *node, SCNMaterial *mat)
 {
     if (node.geometry)
         node.geometry.materials = @[ mat ];
     for (SCNNode *child in node.childNodes)
         gibson_bind_material(child, mat);
+}
+
+static void gibson_apply_floor_program(SCNMaterial *mat, id<SCNProgramDelegate> delegate)
+{
+    id<MTLLibrary> library = gibson_shader_library();
+    if (!library)
+        return;
+
+    SCNProgram *program = [SCNProgram program];
+    program.library = library;
+    program.vertexFunctionName = @"gibsonFloorVertex";
+    program.fragmentFunctionName = @"gibsonFloorFragment";
+    program.opaque = YES;
+    program.delegate = delegate;
+    mat.program = program;
+    [mat setValue:mat.diffuse forKey:@"diffuseTexture"];
+}
+
+static id gibson_floor_texture_contents(NSImage *image)
+{
+    if (!image)
+        return nil;
+    CGImageRef cg = [image CGImageForProposedRect:NULL context:nil hints:nil];
+    if (!cg)
+        return image;
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    MTKTextureLoader *loader = [[MTKTextureLoader alloc] initWithDevice:device];
+    NSError *err = nil;
+    id<MTLTexture> tex = [loader newTextureWithCGImage:cg
+                                               options:@{
+        MTKTextureLoaderOptionSRGB : @NO,
+        MTKTextureLoaderOptionGenerateMipmaps : @YES
+    }
+                                                 error:&err];
+    if (!tex)
+    {
+        gibson_metal_log([NSString stringWithFormat:@"floor texture load failed: %@", err]);
+        return (__bridge id)cg;
+    }
+    return tex;
 }
 
 static SCNMaterial *gibson_unlit_material(id contents, BOOL alpha)
@@ -80,6 +231,9 @@ static SCNMaterial *gibson_unlit_material(id contents, BOOL alpha)
     }
     return mat;
 }
+
+@interface GibsonSCNScene () <SCNProgramDelegate>
+@end
 
 @implementation GibsonSCNScene
 {
@@ -225,7 +379,8 @@ static GibsonSCNScene *g_fullWorld;
     if (!geom)
         return;
     NSImage *tex = [self imageNamed:@"room.png"];
-    SCNMaterial *mat = gibson_unlit_material(tex, NO);
+    SCNMaterial *mat = gibson_unlit_material(gibson_floor_texture_contents(tex), NO);
+    gibson_apply_floor_program(mat, self);
     geom.materials = @[ mat ];
     SCNNode *room = [SCNNode nodeWithGeometry:geom];
     room.name = @"room";
@@ -332,6 +487,12 @@ static GibsonSCNScene *g_fullWorld;
 {
     (void)renderer;
     [self tickAtTime:time];
+}
+
+- (void)program:(SCNProgram *)program handleError:(NSError *)error
+{
+    (void)program;
+    gibson_metal_log([NSString stringWithFormat:@"SCNProgram error: %@", error]);
 }
 
 - (void)resetClock
