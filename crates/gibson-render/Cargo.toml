@@ -1,0 +1,15 @@
+[package]
+name = "gibson-render"
+description = "Hack the Gibson wgpu renderer: instanced towers, PCB floor, pulses, bloom, motion blur, and composite."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gibson-types = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }

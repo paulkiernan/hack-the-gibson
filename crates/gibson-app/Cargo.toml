@@ -1,0 +1,31 @@
+[package]
+name = "gibson-app"
+description = "Hack the Gibson desktop windowed app (macOS/Windows/Linux) and the Windows .scr / Linux xscreensaver hosts."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "gibson-app"
+path = "src/main.rs"
+
+[dependencies]
+gibson-core = { workspace = true }
+gibson-types = { workspace = true }
+winit = { workspace = true }
+clap = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+dirs = { workspace = true }
+png = { workspace = true }
+pollster = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }

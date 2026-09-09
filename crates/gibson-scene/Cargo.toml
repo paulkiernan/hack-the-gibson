@@ -1,0 +1,13 @@
+[package]
+name = "gibson-scene"
+description = "Hack the Gibson world: flight path, tower city, pulses, highlights, camera, and per-frame culling/sorting."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gibson-types = { workspace = true }
+glam = { workspace = true }
+rand = { workspace = true }

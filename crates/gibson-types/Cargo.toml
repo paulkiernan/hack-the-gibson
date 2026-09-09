@@ -1,0 +1,15 @@
+[package]
+name = "gibson-types"
+description = "Frozen shared type contracts for Hack the Gibson: settings, palettes, instance/geometry payloads, and generated-content formats."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+bytemuck = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

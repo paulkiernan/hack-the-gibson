@@ -1,0 +1,16 @@
+[package]
+name = "gibson-atlas"
+description = "Hack the Gibson tower-face text atlas generator: mosaic and directory panels rasterized with fontdue."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gibson-types = { workspace = true }
+fontdue = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+png = { workspace = true }

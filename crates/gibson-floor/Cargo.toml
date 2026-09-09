@@ -1,0 +1,12 @@
+[package]
+name = "gibson-floor"
+description = "Hack the Gibson PCB floor-map generator: Manhattan traces, vias, pads, and chips on a toroidal cell grid."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gibson-types = { workspace = true }
+rand = { workspace = true }

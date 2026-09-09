@@ -1,0 +1,57 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+version = "2.0.0"
+repository = "https://github.com/paulkiernan/hack-the-gibson"
+homepage = "https://paulkiernan.github.io/hack-the-gibson/"
+
+[workspace.dependencies]
+# Local crates.
+gibson-types = { path = "crates/gibson-types" }
+gibson-scene = { path = "crates/gibson-scene" }
+gibson-atlas = { path = "crates/gibson-atlas" }
+gibson-floor = { path = "crates/gibson-floor" }
+gibson-render = { path = "crates/gibson-render" }
+gibson-core = { path = "crates/gibson-core" }
+
+# Shared external crates — single source of truth for versions across the workspace.
+wgpu = "30"
+winit = "0.30"
+glam = "0.30"
+bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+# rand with default features pulls getrandom's OS RNG, which does not build for
+# wasm32-unknown-unknown; every generator in this project is deterministic
+# (StdRng from a seed), so only std + std_rng are enabled.
+rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
+fontdue = "0.9"
+log = "0.4"
+pollster = "0.4"
+env_logger = "0.11"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+dirs = "6"
+png = "0.17"
+serde_json = "1"
+raw-window-handle = "0.6"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+console_error_panic_hook = "0.1"
+console_log = "1"
+x11-dl = "2"
+windows-sys = "0.59"
+
+# Release profile: the renderer spends its life emitting instanced draws; keep it fast.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+# Debug builds of the wgpu dependency stack are otherwise unusably slow.
+[profile.dev.package."*"]
+opt-level = 2

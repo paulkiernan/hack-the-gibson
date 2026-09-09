@@ -1,43 +1,5 @@
-# Mac crap
+target/
+web/pkg/
+platform/macos/build/
+docs/scratch/
 .DS_Store
-
-# Compiled Object files
-*.slo
-*.lo
-*.o
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Old makefiles from makedepend
-Makefile.bak
-
-# GDB trash
-.gdb_history
-
-# Project binaries
-src/gibson
-src/scn_preview
-
-# Screensaver bundle
-dist/

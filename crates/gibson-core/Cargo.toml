@@ -1,0 +1,23 @@
+[package]
+name = "gibson-core"
+description = "Hack the Gibson host-facing facade: owns instance, scene, generated content, and renderer; frame/snapshot entry points."
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gibson-types = { workspace = true }
+gibson-scene = { workspace = true }
+gibson-atlas = { workspace = true }
+gibson-floor = { workspace = true }
+gibson-render = { workspace = true }
+wgpu = { workspace = true }
+log = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = { workspace = true }
