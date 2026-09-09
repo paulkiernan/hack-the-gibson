@@ -16,13 +16,44 @@ struct TowerVertex {
 
 const GEOM_ATTRS: [wgpu::VertexAttribute; 3] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32, 2 => Float32x2];
-const INST_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
-    3 => Float32x3, // position (base center)
-    4 => Float32, // anim_phase
-    5 => Uint32x4, // face_layers
-    6 => Uint32, // top_layer
-    7 => Uint32, // highlight_block
-    8 => Float32, // highlight_t
+// Explicit offsets: `TowerInstance` is 48 bytes packed position(0) anim_phase(12)
+// face_layers(16) top_layer(32) highlight_block(36) highlight_t(40) height(44).
+const INST_ATTRS: [wgpu::VertexAttribute; 7] = [
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x3,
+        offset: 0,
+        shader_location: 3, // position (base center)
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32,
+        offset: 12,
+        shader_location: 4, // anim_phase
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Uint32x4,
+        offset: 16,
+        shader_location: 5, // face_layers
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Uint32,
+        offset: 32,
+        shader_location: 6, // top_layer
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Uint32,
+        offset: 36,
+        shader_location: 7, // highlight_block
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32,
+        offset: 40,
+        shader_location: 8, // highlight_t
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32,
+        offset: 44,
+        shader_location: 9, // height (actual tower height in world units)
+    },
 ];
 
 /// Geometry vertex attribute layout (buffer 0, per-vertex).
@@ -99,8 +130,9 @@ fn build_box() -> Vec<TowerVertex> {
     v
 }
 
-// Box geometry is a 2x2x2 unit cube scaled in the vertex shader by (6, 19, 6); the tower
-// half-extents live in the WGSL (TOWER_W/TOWER_H constants) and in tests.
+// Box geometry is a 2x2x2 unit cube. The vertex shader maps local x/z to +/- TOWER_W and local
+// y in [-1, 1] to [0, instance height] (the instance position is the base center at y = 0), so
+// one static box serves towers of every height.
 
 /// The tower pass: static box geometry + a growable per-frame instance buffer.
 pub struct Towers {

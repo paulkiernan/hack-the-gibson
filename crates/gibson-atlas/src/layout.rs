@@ -17,8 +17,11 @@ pub const PW: usize = ATLAS_WIDTH as usize; // 256
 pub const PH: usize = ATLAS_HEIGHT as usize; // 768
 /// Bytes in one 256 x 768 RGBA layer.
 pub const LAYER_BYTES: usize = PW * PH * 4;
-/// Margin on every side of a mosaic panel (px).
+/// Margin on every side of a mosaic panel (px). Content keeps this many pixel rows empty at the
+/// top and bottom of every layer (contract B: band seams must read as natural gaps).
 pub const MARGIN: i32 = 6;
+/// Row pitch for mono mosaic text in px (tight 8 px leading at the 7 px face).
+pub const MONO_PITCH: i32 = 8;
 /// Right edge for directory text (px); the last glyph column lands here.
 pub const DIR_RIGHT: f32 = 236.0;
 
@@ -42,10 +45,10 @@ impl Block {
     pub fn h(&self) -> i32 {
         self.y1 - self.y0
     }
-    /// Number of 9 px text rows this block holds.
+    /// Number of mono text rows this block holds (8 px pitch).
     #[inline]
     pub fn lines(&self) -> usize {
-        (self.h() / 9) as usize
+        (self.h() / MONO_PITCH) as usize
     }
 }
 
@@ -150,18 +153,23 @@ pub fn triangle_right_r(layer: &mut [u8], left: i32, top: i32, tw: i32, th: i32,
     }
 }
 
-/// A bar-chart block: solid 3 px-wide vertical bars of random height with a 1 px gap, bottom
-/// aligned inside the block. Content only touches R.
+/// A bar-chart block: solid 3 px-wide vertical bars of random height with a 2 px gap, bottom
+/// aligned on a bright 1 px baseline inside the block. Bar heights are capped (max 24 px) so the
+/// charts stay small like the film's little data widgets even in tall blocks. Content only
+/// touches R.
 pub fn bars_r(rng: &mut StdRng, layer: &mut [u8], b: &Block) {
     let h = b.h();
     if h < 8 {
         return;
     }
-    let bottom = b.y1 - 2;
-    let hi_max = ((h * 2) / 5).max(3).min(h - 3);
+    let baseline_y = b.y1 - 1;
+    let bottom = baseline_y - 2;
+    let hi_max = ((h * 2) / 5).max(3).min(h - 3).min(24);
+    // Bright baseline spanning the chart.
+    hline_r(layer, b.x0 + 1, b.x1 - 1, baseline_y, 255);
     let mut x = b.x0 + 2;
     while x + 3 <= b.x1 - 2 {
-        let hi = rng.random_range(3..=hi_max);
+        let hi = rng.random_range(2..=hi_max);
         let top = bottom - hi + 1;
         for y in top..=bottom {
             let row = y as usize * PW;

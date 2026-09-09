@@ -68,7 +68,7 @@ pub fn geometry(rng: &mut StdRng) -> Vec<Block> {
     let h_lines = rng.random_range(4..=6);
     let hw: u32 = if rng.random_range(0..100) < 50 { 96 } else { 128 };
     let gy = top + n * ROW_H + rng.random_range(10..=22);
-    layout::push_block(&mut out, &mut id, layout::MARGIN, gy, hw, (h_lines * 9) as u32);
+    layout::push_block(&mut out, &mut id, layout::MARGIN, gy, hw, (h_lines * layout::MONO_PITCH) as u32);
     out
 }
 
@@ -136,7 +136,7 @@ pub fn render(rng: &mut StdRng, layer: &mut [u8], blocks: &[Block], glyphs: &mut
         if s.is_empty() {
             continue;
         }
-        let baseline = (hex.y0 + (r as i32) * 9) as f32 + asc;
+        let baseline = (hex.y0 + (r as i32) * layout::MONO_PITCH) as f32 + asc;
         glyphs.draw_row(
             layer,
             MONO,

@@ -88,6 +88,14 @@ pub struct Cli {
     #[arg(long, value_name = "N")]
     pub pulses: Option<u32>,
 
+    /// Override the configured film grain amount.
+    #[arg(long, value_name = "AMOUNT")]
+    pub grain: Option<f32>,
+
+    /// Override the configured CRT overlay strength.
+    #[arg(long, value_name = "STRENGTH", conflicts_with = "no_crt")]
+    pub crt: Option<f32>,
+
     /// Override the configured random seed.
     #[arg(long, value_name = "SEED")]
     pub seed: Option<u64>,
@@ -103,6 +111,10 @@ pub struct Cli {
     /// Disable motion blur.
     #[arg(long)]
     pub no_motion_blur: bool,
+
+    /// Disable the CRT overlay.
+    #[arg(long, conflicts_with = "crt")]
+    pub no_crt: bool,
 
     /// Linux xscreensaver: X11 window id to render into (decimal or 0x hex).
     /// Defaults to the XSCREENSAVER_WINDOW environment variable when set.
@@ -143,6 +155,12 @@ pub fn resolve(cli: &Cli) -> Result<Settings, String> {
     if let Some(v) = cli.pulses {
         settings.pulses = v;
     }
+    if let Some(v) = cli.grain {
+        settings.grain = v;
+    }
+    if let Some(v) = cli.crt {
+        settings.crt = v;
+    }
     if let Some(v) = cli.seed {
         settings.seed = v;
     }
@@ -154,6 +172,9 @@ pub fn resolve(cli: &Cli) -> Result<Settings, String> {
     }
     if cli.no_motion_blur {
         settings.motion_blur = 0.0;
+    }
+    if cli.no_crt {
+        settings.crt = 0.0;
     }
     Ok(settings.clamped())
 }
@@ -170,11 +191,17 @@ mod tests {
     }
 
     fn temp_config(body: &str) -> PathBuf {
+        // Nanosecond timestamps alone can collide when sibling tests on other threads
+        // start within the same clock tick, so add a process-wide counter to keep every
+        // temp file unique.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("gibson-app-cli-{nonce}.toml"));
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("gibson-app-cli-{nonce}-{seq}.toml"));
         fs::write(&path, body).expect("write temp config");
         path
     }
@@ -243,6 +270,40 @@ mod tests {
         assert!(path.exists(), "--config path should be created");
         assert_eq!(settings.grid, 33);
         assert_eq!(settings.fly_speed, Settings::default().fly_speed);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn crt_override_and_no_crt() {
+        let path = temp_config("crt = 0.8\n");
+        // --crt overrides the config file.
+        let cli = parse(&["--config", path.to_str().unwrap(), "--crt", "0.2"]);
+        let settings = resolve(&cli).expect("resolve");
+        assert_eq!(settings.crt, 0.2);
+        // --no-crt forces 0 regardless of the config file.
+        let cli = parse(&["--config", path.to_str().unwrap(), "--no-crt"]);
+        let settings = resolve(&cli).expect("resolve");
+        assert_eq!(settings.crt, 0.0);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn crt_and_no_crt_conflict() {
+        use clap::error::ErrorKind;
+        let err = Cli::try_parse_from(["gibson-app", "--crt", "0.5", "--no-crt"])
+            .expect_err("--crt and --no-crt must conflict");
+        assert_eq!(err.kind(), ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn cli_crt_out_of_range_is_clamped() {
+        let path = temp_config("");
+        let cli = parse(&["--config", path.to_str().unwrap(), "--crt", "3"]);
+        let settings = resolve(&cli).expect("resolve");
+        assert_eq!(settings.crt, 1.0);
+        let cli = parse(&["--config", path.to_str().unwrap(), "--crt=-1"]);
+        let settings = resolve(&cli).expect("resolve");
+        assert_eq!(settings.crt, 0.0);
         let _ = fs::remove_file(&path);
     }
 

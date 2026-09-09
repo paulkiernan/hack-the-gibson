@@ -24,7 +24,7 @@ struct FrameUniform {
 @group(0) @binding(1) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(2) var hdr_smp: sampler;
 
-const THRESHOLD: f32 = 0.8;
+const THRESHOLD: f32 = 0.85;
 const KNEE: f32 = 0.5;
 
 struct VsIn {

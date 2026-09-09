@@ -55,7 +55,10 @@ bloom = 0.45
 # Motion blur strength (0 disables .. 1).
 motion_blur = 0.5
 # Film grain amount (0 disables .. 0.2).
-grain = 0.04
+grain = 0.03
+# CRT overlay strength (0 disables .. 1): scanlines, aperture grille, screen
+# curvature, phosphor bloom, and edge vignette over the whole render.
+crt = 0.35
 # Internal render resolution multiplier (0.25 .. 1): 0.5 renders at half
 # resolution for slower GPUs.
 render_scale = 1
@@ -64,7 +67,7 @@ render_scale = 1
 # Tower city grid: grid x grid towers (8 .. 120).
 grid = 60
 # Number of blue pulse streaks flying down the lanes (0 .. 2000).
-pulses = 400
+pulses = 700
 
 # True while running as a screensaver preview tile (fewer pulses etc.).
 # Screensaver hosts set this themselves; leave it false for the desktop app.
@@ -179,7 +182,7 @@ mod tests {
         let path = temp_path("clamped");
         fs::write(
             &path,
-            "fly_speed = 99\ngrid = 2\nbloom = -3\nmotion_blur = 7\npulses = 99999\n",
+            "fly_speed = 99\ngrid = 2\nbloom = -3\nmotion_blur = 7\npulses = 99999\ncrt = 9\n",
         )
         .expect("write config");
         let settings = load_or_create(&path).expect("load clamps");
@@ -188,6 +191,16 @@ mod tests {
         assert_eq!(settings.bloom, 0.0);
         assert_eq!(settings.motion_blur, 1.0);
         assert_eq!(settings.pulses, 2000);
+        assert_eq!(settings.crt, 1.0);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn crt_value_loaded_from_config() {
+        let path = temp_path("crt");
+        fs::write(&path, "crt = 0.6\n").expect("write config");
+        let settings = load_or_create(&path).expect("load");
+        assert_eq!(settings.crt, 0.6);
         let _ = fs::remove_file(&path);
     }
 

@@ -27,6 +27,7 @@ final class SaverSettings {
         static let bloom = "bloom"
         static let motionBlur = "motion_blur"
         static let grain = "grain"
+        static let crt = "crt"
         static let renderScale = "render_scale"
     }
 
@@ -41,6 +42,7 @@ final class SaverSettings {
             Key.bloom: true,
             Key.motionBlur: true,
             Key.grain: true,
+            Key.crt: 0.35,
             Key.renderScale: 1.0,
         ])
     }
@@ -81,6 +83,12 @@ final class SaverSettings {
         set { store.set(newValue, forKey: Key.grain) }
     }
 
+    /// CRT overlay strength 0.0 (off) ... 1.0 (full effect); engine default 0.35.
+    var crt: Double {
+        get { store.double(forKey: Key.crt) }
+        set { store.set(newValue, forKey: Key.crt) }
+    }
+
     var renderScale: Double {
         get { store.double(forKey: Key.renderScale) }
         set { store.set(newValue, forKey: Key.renderScale) }
@@ -103,7 +111,8 @@ final class SaverSettings {
             "palette": palette,
             "bloom": bloomEnabled ? 0.45 : 0.0,
             "motion_blur": motionBlurEnabled ? 0.5 : 0.0,
-            "grain": grainEnabled ? 0.04 : 0.0,
+            "grain": grainEnabled ? 0.03 : 0.0,
+            "crt": min(max(crt, 0.0), 1.0),
             "render_scale": max(renderScale, 0.25),
             "preview": preview,
         ]

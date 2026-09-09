@@ -2,7 +2,7 @@
 //!
 //! One `Rgba16Float` HDR chain is driven by a single uniform buffer bound to every
 //! pipeline (WebGL2 allows at most four bind groups and a 16 KiB uniform buffer; this
-//! struct is ~368 bytes). All colors are HDR linear values; the fragment shaders read
+//! struct is ~384 bytes). All colors are HDR linear values; the fragment shaders read
 //! them straight out of this struct.
 //!
 //! The Rust layout mirrors the WGSL `FrameUniform` struct member-for-member so
@@ -47,6 +47,8 @@ pub struct FrameUniform {
     /// x = bloom amount, y = motion blur amount, z = grain amount,
     /// w = 1.0 when the composite target is non-sRGB (manual encode).
     pub fx: [f32; 4],
+    /// x = CRT overlay amount (0 = off ..= 1 = full), yzw unused.
+    pub post: [f32; 4],
 }
 
 impl FrameUniform {
@@ -87,6 +89,7 @@ impl FrameUniform {
                 s.grain,
                 if srgb_target { 0.0 } else { 1.0 },
             ],
+            post: [s.crt, 0.0, 0.0, 0.0],
         }
     }
 }

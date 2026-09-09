@@ -2,8 +2,9 @@
 // One enormous quad at y = 0 spanning +/- (grid * 15 + 600). The fragment shader decodes the
 // PCB tile: each 2.5-unit cell is fetched (nearest, never filtered) from the 96x96 floor map and
 // an analytic SDF to that cell's half-segments / pads / vias / chip rectangle is evaluated, so
-// the traces come out as thick rounded-corner Manhattan routes. Everything is emissive; fog
-// fades the floor to black with FOG_END.
+// the traces come out as even-gauge rounded-corner Manhattan routes. Traces stop with a pad at
+// the tower keep-out boundaries; the substrate between features stays true black (no wash).
+// Everything is emissive; fog fades the floor to black with FOG_END.
 //
 // WGSL note: `fwidth` may only appear in uniform control flow, so every derivative call below
 // sits at the top level of the fragment shader (never inside a data-dependent branch); branch
@@ -31,7 +32,7 @@ struct FrameUniform {
 const CELL: f32 = 2.5; // world units per cell
 const CELLS: f32 = 96.0; // cells per tile edge
 const HALF: f32 = 1.25; // half cell in world units
-const TRACE_W: f32 = 0.45; // trace width in world units
+const TRACE_W: f32 = 0.6; // trace width in world units (even gauge, ~0.24 of a cell)
 
 struct VsIn {
     @location(0) corner: vec2<f32>, // world-space x and z of a quad corner (y = 0)
@@ -113,23 +114,40 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         ),
     );
     let aaseg = fwidth(dseg);
-    let trace = 1.0 - smoothstep(TRACE_W * 0.5 - aaseg, TRACE_W * 0.5 + aaseg, dseg);
-    let glow = 0.35 * exp(-1.8 * min(dseg, 8.0));
+    let hw = TRACE_W * 0.5;
+    // Crisp anti-aliased conductor edge.
+    let trace = 1.0 - smoothstep(hw - aaseg, hw + aaseg, dseg);
     let trace_present = select(0.0, 1.0, rbyte != 0u);
-    var col = (trace * 1.6 + glow) * u.floor_trace.rgb * brightness * trace_present;
+    // A tight halo that hugs the trace edge (falls to nothing within ~1 trace width) keeps the
+    // traces luminous without washing the black substrate between the bus runs.
+    let halo = 0.22 * exp(-3.5 * max(dseg - hw, 0.0));
+    // Trace color shaping: the frozen palette stores a hot wide-gamut value that ACES would
+    // wash to pale lavender; the film trace is a deep violet (#5B3FE8), so rebalance toward the
+    // blue and keep the core under the bloom threshold so traces read crisp on black substrate
+    // (only pads and chip rims bloom). The halo term adds glow just off the conductor edge.
+    let trace_col = u.floor_trace.rgb * vec3<f32>(0.30, 0.24, 0.50);
+    var col = (trace * 1.05 + halo * (1.0 - trace)) * trace_col * brightness * trace_present;
 
-    // --- Pads (G=1) and vias (G=2): circle / ring. ---
+    // --- Pads (G=1) and vias (G=2): terminations read as distinct board features. ---
     let dp = length(lp);
     let aap = fwidth(dp);
-    let disc = 1.0 - smoothstep(0.9 - aap, 0.9 + aap, dp);
-    let ring = 1.0 - smoothstep(0.2 - aap, 0.2 + aap, abs(dp - 0.7));
-    let cov = select(ring, disc, gb == 1u);
-    let is_pad = select(0.0, 1.0, gb == 1u || gb == 2u);
-    let glow_p = 0.35 * exp(-1.8 * min(dp, 8.0));
-    col += (cov * 1.6 + glow_p) * u.floor_pad.rgb * brightness * is_pad;
+    let is_pad = select(0.0, 1.0, gb == 1u);
+    let is_via = select(0.0, 1.0, gb == 2u);
+    // Pad: solid bright disc with a hotter centre and a crisp edge; a faint halo only just
+    // past the rim so a trace ending at a keep-out boundary lands on a clean round pad.
+    // Pads stay brighter than traces (they read as pale-lavender nodes in the film).
+    let pad_col = u.floor_pad.rgb * vec3<f32>(0.30, 0.26, 0.50);
+    let pad_disc = 1.0 - smoothstep(0.98 - aap, 0.98 + aap, dp);
+    let pad_core = 1.0 - smoothstep(0.5 - aap, 0.5 + aap, dp);
+    let pad_halo = 0.4 * exp(-3.0 * max(dp - 0.98, 0.0));
+    col += (pad_disc * (1.0 + 0.4 * pad_core) + pad_halo) * pad_col * brightness * is_pad;
+    // Via: bright copper ring around the dark drilled hole (substrate shows through).
+    let ring = 1.0 - smoothstep(0.24 - aap, 0.24 + aap, abs(dp - 0.66));
+    let via_halo = 0.5 * exp(-3.0 * max(dp - 0.9, 0.0));
+    col += (ring * 1.4 + via_halo) * pad_col * brightness * is_via;
 
-    // --- Chips (G=3): inset rectangle per cell, bright rim only on the chip's outer
-    // boundary (a cell whose neighbor is not part of the chip). ---
+    // --- Chips (G=3): inset rectangle per cell, dark epoxy body with a bright rim only on the
+    // chip's outer boundary (a cell whose neighbor is not part of the chip). ---
     let np_xp = neighbor_g(cx, cz, 1, 0);
     let np_xm = neighbor_g(cx, cz, -1, 0);
     let np_zp = neighbor_g(cx, cz, 0, 1);
@@ -137,7 +155,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let aachip = fwidth(lp.x) + fwidth(lp.y);
     let dbox = box_dist(lp, vec2<f32>(HALF, HALF));
     let chip_cov = 1.0 - smoothstep(-aachip, aachip, dbox);
-    let band = 0.35;
+    let band = 0.3;
     let edge_xp = 1.0 - smoothstep(band - aachip, band + aachip, HALF - lp.x);
     let edge_xm = 1.0 - smoothstep(band - aachip, band + aachip, lp.x + HALF);
     let edge_zp = 1.0 - smoothstep(band - aachip, band + aachip, HALF - lp.y);
@@ -148,9 +166,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         + select(0.0, 1.0, np_zm != 3u) * edge_zm;
     let is_chip = select(0.0, 1.0, gb == 3u);
     let dchip = max(min(abs(lp.x) - (HALF - 0.3), abs(lp.y) - (HALF - 0.3)), 0.0);
-    let glow_c = 0.35 * exp(-1.8 * min(dchip + 0.5, 8.0));
-    col += u.floor_trace.rgb * 0.45 * chip_cov * brightness * is_chip;
-    col += u.floor_pad.rgb * (is_edge * 1.7 + glow_c * 0.6) * chip_cov * brightness * is_chip;
+    let glow_c = 0.4 * exp(-1.8 * min(dchip + 0.5, 8.0));
+    col += trace_col * 0.9 * chip_cov * brightness * is_chip;
+    col += pad_col * (is_edge * 1.2 + glow_c * 0.6) * chip_cov * brightness * is_chip;
 
     col = col * fog;
     return vec4<f32>(col, 1.0);

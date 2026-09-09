@@ -1,6 +1,6 @@
 //! Dump atlas layers to PNG for eyeballing.
 //!
-//! Usage: `cargo run --release -p gibson-atlas --example dump [LAYER ...]`
+//! Usage: `cargo run --release -p gibson-atlas --example atlas_dump [LAYER ...]`
 //!
 //! With no arguments a representative set of layers is dumped: mosaic panels, directory panels,
 //! and their variant B counterparts. R is shown as the visible channel: block interiors are
@@ -70,6 +70,19 @@ fn main() {
         counts.iter().max().copied().unwrap_or(0),
         counts.iter().sum::<usize>() as f64 / counts.len() as f64
     );
+    let mo: Vec<usize> = counts[..28].to_vec();
+    let di: Vec<usize> = counts[28..].to_vec();
+    let stats = |v: &[usize], name: &str| {
+        let sum: usize = v.iter().sum();
+        println!(
+            "  {name}: min {} max {} avg {:.1}",
+            v.iter().min().copied().unwrap_or(0),
+            v.iter().max().copied().unwrap_or(0),
+            sum as f64 / v.len() as f64
+        );
+    };
+    stats(&mo, "mosaic panels 0..28");
+    stats(&di, "directory panels 28..32");
 
     // Coverage summary per layer.
     let per = atlas.width as usize * atlas.height as usize;

@@ -72,7 +72,7 @@ async fn run() -> Result<(), String> {
     let settings = settings_from_url(&window).clamped();
     log::info!(
         "gibson-web: settings: fly_speed={} bank_strength={} palette={:?} grid={} pulses={} seed={} \
-         render_scale={} bloom={} motion_blur={} grain={}",
+         render_scale={} bloom={} motion_blur={} grain={} crt={}",
         settings.fly_speed,
         settings.bank_strength,
         settings.palette,
@@ -83,6 +83,7 @@ async fn run() -> Result<(), String> {
         settings.bloom,
         settings.motion_blur,
         settings.grain,
+        settings.crt,
     );
 
     // Logical (CSS) size goes to `Gibson`; the renderer derives the physical render size from
@@ -228,6 +229,7 @@ fn settings_from_url(window: &Window) -> Settings {
     parse_f32(&params, "bloom", &mut s.bloom);
     parse_f32(&params, "motionblur", &mut s.motion_blur);
     parse_f32(&params, "grain", &mut s.grain);
+    parse_f32(&params, "crt", &mut s.crt);
     s
 }
 

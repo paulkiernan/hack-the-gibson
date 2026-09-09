@@ -42,26 +42,32 @@ all: $(BUILD)/$(PRODUCT)
 # against both. The native-libs list is captured to a file so make never has
 # to remember it across recipes.
 #
-# `cargo rustc -- --print native-static-libs` only prints when rustc actually
-# re-links, so the source is touched first. File mtimes have 1 s granularity
-# for cargo's freshness check: a touch within the same second as the previous
-# artifact can still come back "Fresh" with no output, so retry with a 1 s
-# gap until the capture is non-empty.
+# The probe (`cargo rustc -- --print native-static-libs`) only prints when
+# rustc actually re-links, so the source is touched first; the touch runs
+# after a 1 s sleep so its mtime never lands in the same 1 s granule as the
+# previous artifact (cargo's freshness check would otherwise report "Fresh"
+# and print nothing). `CARGO_TERM_COLOR=never` keeps the note parseable even
+# when the caller exports `CARGO_TERM_COLOR=always` (CI does), and any
+# residual ANSI escapes are stripped. The probe is best-effort and never
+# fatal: if it still yields nothing (e.g. an unfamiliar rustc output format),
+# the build falls back to the known-good Apple framework list for this
+# dependency set with a loud warning.
 $(BUILD)/%/$(BUNDLE): $(SOURCES) $(HEADER) Makefile
 	@mkdir -p $(dir $@)
-	@for try in 1 2 3 4 5; do \
-		touch $(ROOT)/crates/gibson-ffi/src/lib.rs; \
-		sleep 1; \
-		cd $(ROOT) && cargo rustc -p gibson-ffi --release --target $(triple) \
+	@for attempt in 1 2; do \
+		sleep 1; touch $(ROOT)/crates/gibson-ffi/src/lib.rs; \
+		( cd $(ROOT) && CARGO_TERM_COLOR=never cargo rustc -p gibson-ffi --release --target $(triple) \
 			-- --print native-static-libs 2>&1 \
+			| perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g' \
 			| sed -n -e 's/^[[:space:]]*framework=/-framework /p' -e 's/^[[:space:]]*lib=/-l/p' \
 				-e 's/^note: native-static-libs: //p' \
-			| tr '\n' ' ' > $(BUILD)/$(arch)/native-libs.txt; \
+			| tr '\n' ' ' ) > $(BUILD)/$(arch)/native-libs.txt; \
 		if [ -s $(BUILD)/$(arch)/native-libs.txt ]; then break; fi; \
-		echo "warning: native-static-libs came back empty (attempt $$try), retrying"; \
 	done; \
 	if [ ! -s $(BUILD)/$(arch)/native-libs.txt ]; then \
-		echo "error: could not capture native static libs for $(arch)"; exit 1; \
+		echo "warning: native-static-libs probe empty for $(arch); using known-good Apple list"; \
+		echo '-lSystem -framework QuartzCore -framework CoreGraphics -liconv -framework Metal -framework Foundation -framework CoreFoundation -lobjc -lc -lm' \
+			> $(BUILD)/$(arch)/native-libs.txt; \
 	fi
 	@echo "native static libs ($(arch)): $$(cat $(BUILD)/$(arch)/native-libs.txt)"
 	$(SWIFTC) $(COMMON) $(RELEASE) -parse-as-library -emit-library \

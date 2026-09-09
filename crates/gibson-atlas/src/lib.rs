@@ -257,4 +257,92 @@ mod tests {
             }
         }
     }
+
+    /// Contract B: the renderer stacks panels vertically as bands on a tall face, so every layer
+    /// must keep a few pixel rows of empty margin at its top and bottom edges (band seams read
+    /// as natural gaps, and no design element may sit at the very edge of a face).
+    #[test]
+    fn every_layer_has_empty_top_and_bottom_margin_rows() {
+        const SEEDS: [u64; 6] = [0, 5, 11, 42, 99, 1234];
+        let wpx = ATLAS_WIDTH as usize;
+        for &seed in &SEEDS {
+            let a = generate(seed);
+            for l in 0..ATLAS_LAYERS as usize {
+                let lay = layer(&a.rgba, l);
+                for y in 0..layout::MARGIN as usize {
+                    let row = &lay[y * wpx * 4..(y + 1) * wpx * 4];
+                    assert!(
+                        row.iter().all(|&b| b == 0),
+                        "seed {seed} layer {l}: top margin row {y} has coverage"
+                    );
+                }
+                for y in (ATLAS_HEIGHT as usize - layout::MARGIN as usize)..ATLAS_HEIGHT as usize {
+                    let row = &lay[y * wpx * 4..(y + 1) * wpx * 4];
+                    assert!(
+                        row.iter().all(|&b| b == 0),
+                        "seed {seed} layer {l}: bottom margin row {y} has coverage"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Film composition: every mosaic panel must mix structure like the film faces — at least one
+    /// tall narrow column block, at least one full-width anchor that is drawn as an inverse-video
+    /// slab, and a higher mean block count than the old horizontal-band layout (which averaged
+    /// 11.5 blocks per mosaic panel; the column-strip layout must stay clearly above that).
+    #[test]
+    fn mosaic_composition_is_film_like() {
+        const SEEDS: [u64; 8] = [0, 1, 3, 5, 11, 42, 99, 1234];
+        let mut total_mean = 0.0f64;
+        for &seed in &SEEDS {
+            let (img, panels) = generate_internal(seed);
+            let mut panel_means = Vec::new();
+            for p in 0..28 {
+                let blocks = &panels[p];
+                assert!(
+                    blocks.len() >= 10,
+                    "seed {seed} mosaic panel {p}: only {} blocks",
+                    blocks.len()
+                );
+                // Tall narrow column block (the film's column strips): >= 200 px tall, <= 96 wide.
+                assert!(
+                    blocks.iter().any(|b| b.w() <= 96 && b.h() >= 200),
+                    "seed {seed} mosaic panel {p}: no tall narrow column block"
+                );
+                // A full-width-ish anchor exists (>= 160 wide, short band).
+                let anchor = blocks
+                    .iter()
+                    .find(|b| b.w() >= 160 && b.h() <= layout::MONO_PITCH * 12)
+                    .unwrap_or_else(|| panic!("seed {seed} mosaic panel {p}: no wide anchor"));
+                // And that anchor is an inverse-video slab in variant A: bright fill (mean R
+                // over the rectangle high) with knocked-out glyphs.
+                let lay = layer(&img.rgba, p);
+                let (mut sum, mut n) = (0u64, 0u64);
+                for y in anchor.y0..anchor.y1 {
+                    let row = y as usize * layout::PW;
+                    for x in anchor.x0..anchor.x1 {
+                        sum += lay[(row + x as usize) * 4] as u64;
+                        n += 1;
+                    }
+                }
+                let mean_r = sum as f64 / n as f64;
+                assert!(
+                    mean_r >= 170.0,
+                    "seed {seed} mosaic panel {p}: top anchor (w={}, h={}) mean R {mean_r:.0} < 170 (not an inverse slab)",
+                    anchor.w(),
+                    anchor.h()
+                );
+                panel_means.push(blocks.len() as f64);
+            }
+            total_mean += panel_means.iter().sum::<f64>() / panel_means.len() as f64;
+        }
+        let overall = total_mean / SEEDS.len() as f64;
+        // 11.5 was the old band layout's mosaic mean; require the column layout to stay well
+        // above it across the seed sweep.
+        assert!(
+            overall >= 14.0,
+            "mosaic mean block count {overall:.1} dropped below the 11.5 of the old band layout"
+        );
+    }
 }

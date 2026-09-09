@@ -15,11 +15,34 @@ struct PulseVertex {
 
 const QUAD_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32, 1 => Float32];
-const PULSE_ATTRS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
-    2 => Float32x3, // position (head)
-    3 => Float32, // length
-    4 => Float32x3, // direction
-    5 => Float32, // intensity
+// Explicit offsets: PulseInstance is 48 bytes packed position(0) length(12) direction(16)
+// intensity(28) color(32) _pad(44, unread).
+const PULSE_ATTRS: [wgpu::VertexAttribute; 5] = [
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x3,
+        offset: 0,
+        shader_location: 2, // position (head)
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32,
+        offset: 12,
+        shader_location: 3, // length
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x3,
+        offset: 16,
+        shader_location: 4, // direction
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32,
+        offset: 28,
+        shader_location: 5, // intensity
+    },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x3,
+        offset: 32,
+        shader_location: 6, // color (per-beam HDR glow)
+    },
 ];
 
 fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {

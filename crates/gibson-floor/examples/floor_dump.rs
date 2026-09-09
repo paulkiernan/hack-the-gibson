@@ -1,6 +1,6 @@
 //! Dev-only ASCII dump of a generated floor tile, for eyeballing the PCB look.
 //!
-//! Usage: `cargo run -p gibson-floor --example dump -- [seed] [span]`
+//! Usage: `cargo run -p gibson-floor --example floor_dump -- [seed] [span]`
 //!
 //! Prints a coverage summary plus the top-left `span x span` corner. Legend:
 //! `.` empty, `-` horizontal segment, `|` vertical segment, `+` corner or crossing,
@@ -29,7 +29,7 @@ fn glyph(c: &[u8; 4]) -> char {
 fn main() {
     let mut args = std::env::args().skip(1);
     let seed: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let span: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(32);
+    let span: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(48);
     let f = generate(seed);
     let n = f.cells as usize;
     assert!(span <= n, "span must be <= {n}");

@@ -2,7 +2,9 @@
 //! and palette state. [`Scene`] advances the whole sim with [`Scene::update`] and exposes the
 //! per-frame render slice with [`Scene::frame`].
 
-use gibson_types::{CameraPose, FrameData, Palette, PulseInstance, Settings, TowerInstance};
+use gibson_types::{
+    CameraPose, FrameData, Palette, PulseInstance, Settings, TowerInstance,
+};
 
 mod camera;
 mod city;
@@ -56,13 +58,17 @@ impl Scene {
         let mut pulses = PulsePool::new(seed);
         pulses.set_grid(settings.grid);
         pulses.resize(pulse_count(&settings));
+        let mut city = City::new(settings.grid, seed);
+        // Per-tower clearance caps are flight-path geometry: built once per city, never per
+        // frame (grid changes in `update` rebuild and re-cap identically).
+        city.cap_heights(&path);
         Scene {
             seed,
             path,
             rig,
             time: 0.0,
             started: false,
-            city: City::new(settings.grid, seed),
+            city,
             pulses,
             highlights: Highlights::new(seed),
             visible: Vec::with_capacity(4096),
@@ -97,6 +103,8 @@ impl Scene {
         // Grid change -> deterministic rebuild; lane pulses re-spawn onto the new grid extent.
         if self.city.grid() != settings.grid {
             self.city = City::new(settings.grid, self.seed);
+            // Same one-time flight-path cap as `Scene::new` (never per frame).
+            self.city.cap_heights(&self.path);
             self.pulses.set_grid(settings.grid);
         }
         self.pulses.resize(pulse_count(&settings));
@@ -105,13 +113,17 @@ impl Scene {
         self.rig.advance(dt, &settings, &self.path);
         let pose = self.rig.camera();
 
-        // 2. Cull + sort the towers back-to-front for this pose.
+        // 2. Palette for this frame (resolved before the pulses below are composed, so each
+        //    beam's stored hue index recolors against the palette actually in effect).
+        self.palette = palette_state::palette(settings.palette, time, settings.palette_cycle_seconds);
+
+        // 3. Cull + sort the towers back-to-front for this pose.
         self.city.cull(&pose, &mut self.visible);
 
-        // 3. Highlights: expire finished sweeps, pick new ones from the visible set.
+        // 4. Highlights: expire finished sweeps, pick new ones from the visible set.
         self.highlights.update(time, &pose, &self.city, &self.visible);
 
-        // 4. Compose the tower instances (highlight envelope applied to visible towers only).
+        // 5. Compose the tower instances (highlight envelope applied to visible towers only).
         self.tower_buf.clear();
         for v in &self.visible {
             let tower = self.city.tower(v.index);
@@ -123,17 +135,16 @@ impl Scene {
                 top_layer: tower.top_layer,
                 highlight_block,
                 highlight_t,
-                _pad: 0.0,
+                // Per-tower height: random biased-tall base capped below the flight path where
+                // the camera overflies the footprint (see `City::cap_heights`).
+                height: tower.height,
             });
         }
 
-        // 5. Animate the lane pulses and compose their instances.
+        // 6. Animate the lane pulses and compose their instances.
         self.pulses.advance(dt);
         self.pulse_buf.clear();
-        self.pulses.write_instances(&mut self.pulse_buf);
-
-        // 6. Palette for this frame.
-        self.palette = palette_state::palette(settings.palette, time, settings.palette_cycle_seconds);
+        self.pulses.write_instances(&self.palette, &mut self.pulse_buf);
     }
 
     /// Current camera pose.
@@ -192,6 +203,7 @@ mod tests {
             && a.top_layer == b.top_layer
             && a.highlight_block == b.highlight_block
             && a.highlight_t == b.highlight_t
+            && a.height == b.height
     }
 
     fn pulse_eq(a: &PulseInstance, b: &PulseInstance) -> bool {
@@ -199,6 +211,7 @@ mod tests {
             && a.length == b.length
             && a.direction == b.direction
             && a.intensity == b.intensity
+            && a.color == b.color
     }
 
     #[test]
@@ -249,18 +262,36 @@ mod tests {
         assert!(d < 0.2, "near-seam gap {d} exceeds 0.2 units");
     }
 
-    /// Every flight-path sample stays at least 1.0 unit clear of every tower AABB for `grid = 60`.
+    /// Every flight-path sample stays at least 1.0 unit clear of every tower AABB for `grid = 60`,
+    /// where each tower's AABB uses that tower's real capped height from `TowerInstance::height`.
+    ///
+    /// The rescued legacy path sweeps over tower row z = -180 (column x = 255) at s ≈ 16.75
+    /// (pos [250.3, 48.0, -185.2], y ≈ 48). That tower is capped to min(y over its overflown
+    /// footprint) - 1.5, so the sample clears its roof with ~1.5 units to spare; towers the path
+    /// never overflies keep their full biased-tall height. The invariant below therefore holds
+    /// for every tower: within the ±2.0-unit capping margin the vertical clearance is ≥ 1.5, and
+    /// outside it the horizontal clearance is ≥ 2.0.
     #[test]
     fn flight_path_clears_tower_city() {
         let grid = 60i32;
         let half = grid / 2;
         let half_w = TOWER_WIDTH * 0.5; // 6
+        let settings = Settings {
+            grid: grid as u32,
+            ..Settings::default()
+        };
+        let scene = Scene::new(&settings, 11);
         let path = FlightPath::default_loop();
 
         // Track the single worst clearance (nearest approach to a tower) over the whole loop.
         let mut worst_s = -1.0f32;
         let mut worst_pos = [0.0f32; 3];
         let mut worst_d = f32::INFINITY;
+        // The s ≈ 16.75 crossing the ignored version of this test flagged (row z = -180,
+        // column x = 255): confirm that specific tower now clears and report its capped height.
+        let tower_255_z180 = (((255.0 - 15.0) / 30.0) as i32 + half) as usize * (grid as usize)
+            + ((-180.0 / 30.0) as i32 + half) as usize;
+        let mut h255 = scene.city.tower(tower_255_z180 as u32).height;
         let mut k = 0usize;
         loop {
             let s = k as f32 * 0.05;
@@ -271,23 +302,27 @@ mod tests {
             let p = path.position(s);
             let (x, y, z) = (p[0], p[1], p[2]);
             // Only towers within one lattice cell of the sample can be closer than 1.0 unit.
-            let ic = (((x - 15.0) / 30.0).round() as i32) + half;
-            let jc = (z / 30.0).round() as i32 + half;
+            let ncol = ((x - 15.0) / 30.0).round() as i32;
+            let nrow = (z / 30.0).round() as i32;
             let mut min_d = f32::INFINITY;
-            for di in -1..=1 {
-                for dj in -1..=1 {
-                    let (i, j) = (ic + di, jc + dj);
-                    if !(0..grid).contains(&i) || !(0..grid).contains(&j) {
+            for nci in (ncol - 1)..=(ncol + 1) {
+                for nrj in (nrow - 1)..=(nrow + 1) {
+                    if !(-half..grid - half).contains(&nci) || !(-half..grid - half).contains(&nrj) {
                         continue;
                     }
-                    let cx = ((i - half) as f32) * 30.0 + 15.0;
-                    let cz = ((j - half) as f32) * 30.0;
+                    let idx = ((nci + half) as usize) * (grid as usize) + ((nrj + half) as usize);
+                    let cx = nci as f32 * 30.0 + 15.0;
+                    let cz = nrj as f32 * 30.0;
+                    let h = scene.city.tower(idx as u32).height;
+                    if idx == tower_255_z180 {
+                        h255 = h;
+                    }
                     let dxo = ((x - cx).abs() - half_w).max(0.0);
                     let dzo = ((z - cz).abs() - half_w).max(0.0);
                     let yexc = if y < 0.0 {
                         -y
-                    } else if y > TOWER_HEIGHT {
-                        y - TOWER_HEIGHT
+                    } else if y > h {
+                        y - h
                     } else {
                         0.0
                     };
@@ -301,14 +336,88 @@ mod tests {
                 worst_pos = p;
             }
         }
+        println!(
+            "clearance: worst {worst_d:.3} units at s={worst_s} pos={worst_pos:?}; \
+             tower row z=-180 col x=255 capped height = {h255:.2}"
+        );
         assert!(
             worst_d >= 1.0,
             "flight path clips a tower: s={worst_s} pos={worst_pos:?} clearance={worst_d} (grid 60)"
         );
     }
 
+    /// The height model: every emitted tower height lies in `8.0..=TOWER_HEIGHT`, the skyline is
+    /// predominantly tall (>= 60 % above 80 units at grid 60), and no tower AABB contains any
+    /// flight-path sample (the per-tower clearance caps make this hold for every seed).
+    #[test]
+    fn tower_heights_form_tall_canyon_and_clear_the_path() {
+        let grid = 60u32;
+        let half = (grid / 2) as i32;
+        let half_w = TOWER_WIDTH * 0.5;
+        let settings = Settings {
+            grid,
+            ..Settings::default()
+        };
+        let scene = Scene::new(&settings, 11);
+        let path = FlightPath::default_loop();
+
+        let mut tall = 0usize;
+        let mut min_h = f32::INFINITY;
+        for idx in 0..(grid * grid) {
+            let h = scene.city.tower(idx).height;
+            assert!(
+                (8.0..=TOWER_HEIGHT).contains(&h),
+                "tower {idx} height {h} outside 8..=TOWER_HEIGHT"
+            );
+            min_h = min_h.min(h);
+            if h > 80.0 {
+                tall += 1;
+            }
+        }
+        let tall_frac = tall as f64 / (grid * grid) as f64;
+        assert!(
+            tall_frac >= 0.60,
+            "only {tall_frac:.3} of towers exceed 80 units (need >= 0.60); min height {min_h:.1}"
+        );
+        println!("height model: {tall}/{grid}x{grid} towers > 80 units ({tall_frac:.3}); min height {min_h:.1}");
+
+        // No flight-path sample sits inside any tower's AABB (true ±6 footprint, own height).
+        let mut k = 0usize;
+        loop {
+            let s = k as f32 * 0.05;
+            if s >= 39.0 {
+                break;
+            }
+            k += 1;
+            let p = path.position(s);
+            let ncol = ((p[0] - 15.0) / 30.0).round() as i32;
+            let nrow = (p[2] / 30.0).round() as i32;
+            for nci in (ncol - 1)..=(ncol + 1) {
+                for nrj in (nrow - 1)..=(nrow + 1) {
+                    if !(-half..grid as i32 - half).contains(&nci)
+                        || !(-half..grid as i32 - half).contains(&nrj)
+                    {
+                        continue;
+                    }
+                    let idx = ((nci + half) as usize) * (grid as usize) + ((nrj + half) as usize);
+                    let cx = nci as f32 * 30.0 + 15.0;
+                    let cz = nrj as f32 * 30.0;
+                    let h = scene.city.tower(idx as u32).height;
+                    let contained = (p[0] - cx).abs() <= half_w
+                        && (p[2] - cz).abs() <= half_w
+                        && (0.0..=h).contains(&p[1]);
+                    assert!(
+                        !contained,
+                        "flight path inside tower {idx} AABB at s={s} pos={p:?} height {h:.2}"
+                    );
+                }
+            }
+        }
+    }
+
     /// After 5 s at 60 Hz every pulse head sits exactly on a street of the right family, and
-    /// heads stay at street height.
+    /// heads stay at a lane height: either low on the ground lanes (0.6..2.5) or flying at
+    /// height (8..=90) — never between, since the two bands are the designed altitude split.
     #[test]
     fn lane_pulses_stay_on_streets() {
         let settings = Settings::default();
@@ -317,7 +426,8 @@ mod tests {
             scene.update(k as f64 / 60.0, &settings);
         }
         let frame = scene.frame(&settings);
-        assert_eq!(frame.pulses.len(), 400);
+        assert_eq!(frame.pulses.len(), settings.pulses as usize);
+        let mut high = 0usize;
         for p in frame.pulses {
             // Distance to the nearest x-street (x = 30m) or z-street (z = 15 + 30m) line.
             let x_mod = p.position[0].rem_euclid(30.0);
@@ -329,12 +439,21 @@ mod tests {
                 "pulse off every street: position {:?} (x off {dx}, z off {dz})",
                 p.position
             );
+            let y = p.position[1];
             assert!(
-                (0.6..=2.5).contains(&p.position[1]),
-                "pulse head y out of range: {:?}",
-                p.position[1]
+                (0.6..=2.5).contains(&y) || (8.0..=90.0).contains(&y),
+                "pulse head y {y} outside the low (0.6..2.5) or high (8..=90) band: {:?}",
+                p.position
             );
+            if y >= 8.0 {
+                high += 1;
+            }
         }
+        let high_frac = high as f32 / frame.pulses.len() as f32;
+        assert!(
+            (0.15..=0.45).contains(&high_frac),
+            "high-altitude fraction {high_frac} outside the ~30 % split"
+        );
     }
 
     /// Two scenes with the same seed stepped identically produce byte-identical frames.

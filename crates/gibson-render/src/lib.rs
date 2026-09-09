@@ -7,8 +7,8 @@
 //! 3. additive lane pulse ribbons,
 //! 4. bloom (prefilter + 13-tap down + 3x3 tent up; skipped at `bloom == 0`),
 //! 5. motion blur by depth reprojection (skipped at `motion_blur == 0`),
-//! 6. composite (ACES, chromatic aberration, grain, vignette) to the surface or an offscreen
-//!    sRGB texture (`render_to_rgba`).
+//! 6. composite (ACES, chromatic aberration, grain, vignette, optional CRT overlay scaled by
+//!    `settings.crt`) to the surface or an offscreen sRGB texture (`render_to_rgba`).
 //!
 //! WebGL2 constraints every pipeline in this crate respects: no storage buffers, no compute
 //! shaders, one uniform buffer <= 16 KiB per binding, per-instance data via instance-step vertex

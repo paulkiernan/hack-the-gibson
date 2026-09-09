@@ -8,15 +8,19 @@
 //! - Right-handed Y-up world (legacy Irrlicht was left-handed; z was negated on import).
 //! - Grid pitch `TOWER_PITCH` = 30 units; tower base centers sit at `x ≡ 15 (mod 30)`,
 //!   `z ≡ 0 (mod 30)`; the lanes between them run along `x ≡ 0` and `z ≡ 15`.
-//! - Tower footprint: `TOWER_WIDTH × TOWER_HEIGHT × TOWER_WIDTH` (12 × 38 × 12), base on y = 0.
+//! - Tower footprint: `TOWER_WIDTH × TOWER_HEIGHT × TOWER_WIDTH` (12 × 110 × 12) at most; per-
+//!   tower heights range `TOWER_HEIGHT_MIN..=TOWER_HEIGHT` (44..=110), base on y = 0.
 //! - Colors are HDR linear values, pre-multiplied by intensity where noted.
 
 /// Grid pitch in world units; towers are placed every 30 units.
 pub const TOWER_PITCH: f32 = 30.0;
 /// Tower box width and depth in world units.
 pub const TOWER_WIDTH: f32 = 12.0;
-/// Tower box height in world units (base sits on y = 0).
-pub const TOWER_HEIGHT: f32 = 38.0;
+/// Nominal (tallest) tower box height in world units (base sits on y = 0). Individual towers
+/// carry their own height in [`TowerInstance::height`], drawn from `TOWER_HEIGHT_MIN..=TOWER_HEIGHT`.
+pub const TOWER_HEIGHT: f32 = 110.0;
+/// Shortest tower in the skyline (world units); the film's towers form a ~8-10:1 canyon.
+pub const TOWER_HEIGHT_MIN: f32 = 44.0;
 
 /// Floor tile edge length in world units (one tile = 96 × 96 cells).
 pub const FLOOR_TILE_UNITS: f32 = 240.0;
@@ -55,13 +59,16 @@ pub struct Settings {
     pub bloom: f32,
     /// Motion blur strength 0..=1 (default 0.5).
     pub motion_blur: f32,
-    /// Film grain amount 0..=0.2 (default 0.04).
+    /// Film grain amount 0..=0.2 (default 0.03).
     pub grain: f32,
+    /// CRT overlay strength: 0 disables it, 1 is the full effect (scanlines, aperture grille,
+    /// screen curvature, phosphor bloom, edge vignette) (default 0.35).
+    pub crt: f32,
     /// Internal render resolution multiplier 0.25..=1 (default 1.0).
     pub render_scale: f32,
     /// Tower city grid: `grid × grid` towers, 8..=120 (default 60).
     pub grid: u32,
-    /// Number of lane pulse streaks, 0..=2000 (default 400).
+    /// Number of lane pulse streaks, 0..=2000 (default 700).
     pub pulses: u32,
     /// City/atlas/floor random seed; 0 means the host derives one from time (default 0).
     pub seed: u64,
@@ -80,10 +87,11 @@ impl Default for Settings {
             palette_cycle_seconds: 240.0,
             bloom: 0.45,
             motion_blur: 0.5,
-            grain: 0.04,
+            grain: 0.03,
+            crt: 0.35,
             render_scale: 1.0,
             grid: 60,
-            pulses: 400,
+            pulses: 700,
             seed: 0,
             preview: false,
         }
@@ -94,7 +102,7 @@ impl Settings {
     /// Clamp every field to its legal range. `NaN` inputs are replaced by the field's default.
     /// - `fly_speed` 0.05..=3, `bank_strength` -3..=3, `bank_max_degrees` 0..=60,
     ///   `bank_smoothing` 0.05..=2, `bloom` 0..=2, `motion_blur` 0..=1, `grain` 0..=0.2,
-    ///   `render_scale` 0.25..=1, `grid` 8..=120, `pulses` 0..=2000,
+    ///   `crt` 0..=1, `render_scale` 0.25..=1, `grid` 8..=120, `pulses` 0..=2000,
     ///   `palette_cycle_seconds` 10..=3600.
     pub fn clamped(self) -> Settings {
         Settings {
@@ -106,7 +114,8 @@ impl Settings {
             palette_cycle_seconds: clamp_or_default(self.palette_cycle_seconds, 10.0, 3600.0, 240.0),
             bloom: clamp_or_default(self.bloom, 0.0, 2.0, 0.45),
             motion_blur: clamp_or_default(self.motion_blur, 0.0, 1.0, 0.5),
-            grain: clamp_or_default(self.grain, 0.0, 0.2, 0.04),
+            grain: clamp_or_default(self.grain, 0.0, 0.2, 0.03),
+            crt: clamp_or_default(self.crt, 0.0, 1.0, 0.35),
             render_scale: clamp_or_default(self.render_scale, 0.25, 1.0, 1.0),
             grid: self.grid.clamp(8, 120),
             pulses: self.pulses.clamp(0, 2000),
@@ -152,6 +161,8 @@ pub struct Palette {
     pub floor_pad: [f32; 3],
     /// Lane pulse streak color (RGB).
     pub pulse: [f32; 3],
+    /// HDR linear glow colors the scene samples per beam; index 0 is the most common.
+    pub pulse_hues: [[f32; 3]; 4],
     /// Distance haze color (RGB).
     pub haze: [f32; 3],
 }
@@ -161,22 +172,42 @@ impl Palette {
     /// violet PCB traces on black, near-white pulses, blue haze.
     pub const NORMAL: Palette = Palette {
         tower_body: [0.055, 0.165, 0.415, 0.35],
-        tower_text: [0.28 * 1.8, 0.91 * 1.8, 1.0 * 1.8],
+        // Text #48E8FF converted sRGB->linear (~0.066, 0.81, 1.0); red kept a touch above the
+        // film value so glyphs stay bright, green/blue carry the hue.
+        tower_text: [0.10, 0.84, 0.92],
         highlight: [0.75 * 2.5, 0.38 * 2.5, 1.0 * 2.5],
         floor_trace: [0.36 * 1.6, 0.25 * 1.6, 0.91 * 1.6],
         floor_pad: [0.64 * 1.6, 0.55 * 1.6, 1.0 * 1.6],
         pulse: [0.85 * 3.0, 1.0 * 3.0, 1.0 * 3.0],
+        // Beam glows: mostly the white-cyan above, then bright green "zip" lasers, electric
+        // blue, and magenta accents.
+        pulse_hues: [
+            [0.85 * 3.0, 1.0 * 3.0, 1.0 * 3.0],
+            [0.20 * 3.0, 1.0 * 3.0, 0.35 * 3.0],
+            [0.30 * 3.0, 0.55 * 3.0, 1.0 * 3.0],
+            [1.0 * 3.0, 0.35 * 3.0, 0.95 * 3.0],
+        ],
         haze: [0.06, 0.19, 0.63],
     };
 
     /// Siege palette: magenta-pink body, orange-red text, ice-blue floor, warm haze.
     pub const SIEGE: Palette = Palette {
         tower_body: [0.42, 0.06, 0.25, 0.40],
-        tower_text: [1.0 * 1.8, 0.38 * 1.8, 0.19 * 1.8],
+        // Text #FF6030 converted sRGB->linear is (1.0, 0.029, 0.015); storing the sRGB values
+        // in this linear buffer washed the orange toward cream. x1.25 lifts the hot cores.
+        tower_text: [1.0 * 1.25, 0.029 * 1.25, 0.0146 * 1.25],
         highlight: [1.0 * 2.5, 0.85 * 2.5, 0.4 * 2.5],
-        floor_trace: [0.62 * 1.2, 0.75 * 1.2, 1.0 * 1.2],
-        floor_pad: [0.85 * 1.2, 0.9 * 1.2, 1.0 * 1.2],
+        // Trace #9FC0FF in linear is ~(0.34, 0.52, 1.0); x1.5 keeps them icy without clipping.
+        floor_trace: [0.34 * 1.5, 0.52 * 1.5, 1.0 * 1.5],
+        floor_pad: [0.69 * 1.2, 0.78 * 1.2, 1.0 * 1.2],
         pulse: [1.0 * 3.0, 0.9 * 3.0, 0.8 * 3.0],
+        // Siege beam glows: warm white most often, amber, hot red, and pale green zips.
+        pulse_hues: [
+            [1.0 * 3.0, 0.9 * 3.0, 0.8 * 3.0],
+            [1.0 * 3.0, 0.62 * 3.0, 0.18 * 3.0],
+            [1.0 * 3.0, 0.25 * 3.0, 0.15 * 3.0],
+            [0.55 * 3.0, 1.0 * 3.0, 0.45 * 3.0],
+        ],
         haze: [0.25, 0.06, 0.12],
     };
 
@@ -199,6 +230,13 @@ impl Palette {
                 a[3] * (1.0 - t) + b[3] * t,
             ]
         };
+        let lh = |a: &[[f32; 3]; 4], b: &[[f32; 3]; 4]| {
+            let mut out = [[0.0f32; 3]; 4];
+            for k in 0..4 {
+                out[k] = l3(a[k], b[k]);
+            }
+            out
+        };
         Palette {
             tower_body: l4(self.tower_body, other.tower_body),
             tower_text: l3(self.tower_text, other.tower_text),
@@ -206,6 +244,7 @@ impl Palette {
             floor_trace: l3(self.floor_trace, other.floor_trace),
             floor_pad: l3(self.floor_pad, other.floor_pad),
             pulse: l3(self.pulse, other.pulse),
+            pulse_hues: lh(&self.pulse_hues, &other.pulse_hues),
             haze: l3(self.haze, other.haze),
         }
     }
@@ -227,7 +266,9 @@ pub struct TowerInstance {
     pub highlight_block: u32,
     /// Highlight animation 0..1 (ramp up, hold, fade).
     pub highlight_t: f32,
-    pub _pad: f32,
+    /// This tower's actual height in world units; the renderer scales the unit box by it
+    /// (`TOWER_HEIGHT_MIN..=TOWER_HEIGHT`).
+    pub height: f32,
 }
 
 /// One lane pulse streak this frame. GPU-ready layout.
@@ -242,6 +283,9 @@ pub struct PulseInstance {
     pub direction: [f32; 3],
     /// Brightness 0.7..=1.0.
     pub intensity: f32,
+    /// HDR linear glow color for this beam; the scene randomizes it.
+    pub color: [f32; 3],
+    pub _pad: f32,
 }
 
 /// Camera pose handed to the renderer (vertical FOV is 58 degrees).
@@ -327,6 +371,7 @@ mod tests {
             bloom: -1.0,
             motion_blur: 5.0,
             grain: 1.0,
+            crt: 5.0,
             render_scale: 0.0,
             grid: 2,
             pulses: 99999,
@@ -343,6 +388,7 @@ mod tests {
         assert_eq!(c.bloom, 0.0);
         assert_eq!(c.motion_blur, 1.0);
         assert_eq!(c.grain, 0.2);
+        assert_eq!(c.crt, 1.0);
         assert_eq!(c.render_scale, 0.25);
         assert_eq!(c.grid, 8);
         assert_eq!(c.pulses, 2000);
@@ -359,6 +405,7 @@ mod tests {
             bloom: 4.0,
             motion_blur: -4.0,
             grain: 0.0,
+            crt: -1.0,
             render_scale: 5.0,
             grid: 0,
             pulses: 0,
@@ -374,6 +421,7 @@ mod tests {
         assert_eq!(low.bloom, 2.0);
         assert_eq!(low.motion_blur, 0.0);
         assert_eq!(low.grain, 0.0);
+        assert_eq!(low.crt, 0.0);
         assert_eq!(low.render_scale, 1.0);
         assert_eq!(low.grid, 8);
         assert_eq!(low.pulses, 0);
@@ -392,6 +440,7 @@ mod tests {
             bloom: f32::NAN,
             motion_blur: f32::NAN,
             grain: f32::NAN,
+            crt: f32::NAN,
             render_scale: f32::NAN,
             grid: 30,
             pulses: 100,
@@ -407,6 +456,7 @@ mod tests {
         assert_eq!(s.bloom, d.bloom);
         assert_eq!(s.motion_blur, d.motion_blur);
         assert_eq!(s.grain, d.grain);
+        assert_eq!(s.crt, d.crt);
         assert_eq!(s.render_scale, d.render_scale);
         // Non-float fields pass through untouched.
         assert_eq!(s.palette, PaletteMode::Cycle);
@@ -435,6 +485,15 @@ mod tests {
             let expect = (n.tower_body[i] + s.tower_body[i]) * 0.5;
             assert!((m.tower_body[i] - expect).abs() < 1e-6, "tower_body[{i}]");
         }
+        for k in 0..4 {
+            for i in 0..3 {
+                let expect = (n.pulse_hues[k][i] + s.pulse_hues[k][i]) * 0.5;
+                assert!(
+                    (m.pulse_hues[k][i] - expect).abs() < 1e-6,
+                    "pulse_hues[{k}][{i}]"
+                );
+            }
+        }
         for i in 0..3 {
             let expect = (n.tower_text[i] + s.tower_text[i]) * 0.5;
             assert!((m.tower_text[i] - expect).abs() < 1e-6, "tower_text[{i}]");
@@ -443,6 +502,17 @@ mod tests {
         }
         // Alpha really is interpolated (NORMAL 0.35 → SIEGE 0.40).
         assert!((m.tower_body[3] - 0.375).abs() < 1e-6);
+    }
+
+    #[test]
+    fn instance_sizes_are_stable() {
+        // GPU instance buffers are sized from these; the layout is part of the frozen contract.
+        // TowerInstance keeps its historical 48 bytes with `height` replacing the old `_pad`.
+        assert_eq!(std::mem::size_of::<TowerInstance>(), 48);
+        // PulseInstance grows from 32 to 48 bytes with the added glow color.
+        assert_eq!(std::mem::size_of::<PulseInstance>(), 48);
+        assert_eq!(std::mem::align_of::<TowerInstance>(), 4);
+        assert_eq!(std::mem::align_of::<PulseInstance>(), 4);
     }
 
     #[test]
