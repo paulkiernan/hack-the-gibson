@@ -34,12 +34,15 @@ class PulseSet
 {
 public:
 
-	Entity *pulse;
-	f32    *speed;
-	int pulseCount;
+	Entity *pulse = nullptr;
+	f32    *speed = nullptr;
+	int pulseCount = 0;
+	int worldX = TOWER_XSIZE;
+	int worldY = TOWER_YSIZE;
 
-	void init(int number);
+	void init(int number, int xSize=TOWER_XSIZE, int ySize=TOWER_YSIZE);
 	void update();
+	~PulseSet();
 };
 
 

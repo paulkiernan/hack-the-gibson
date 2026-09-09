@@ -20,6 +20,8 @@
 
 #include "render.h"
 
+#include <cstdio>
+
   void RenderTyp::clearScreen(int r, int g, int b, int a)
   {
     Video->beginScene(true, true, SColor(a,r,g,b));

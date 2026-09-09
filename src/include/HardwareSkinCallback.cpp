@@ -196,7 +196,8 @@ void HWSkinCB::OnSetConstants(video::IMaterialRendererServices* services, s32 us
 			else
 			*/
 			bool success = services->setVertexShaderConstant("JointTransform", JointArray, mesh->getAllJoints().size() * 16);
-			delete(JointArray);
+			(void)success;
+			delete[] JointArray;
 		}
 	}
 }

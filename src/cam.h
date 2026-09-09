@@ -56,7 +56,7 @@ public:
     vector3df prevPos, prevRot;
     vector3di setRot;
 
-    array<vector3df> camSpline;
+    core::array<vector3df> camSpline;
 
     f32 prevVel;
 

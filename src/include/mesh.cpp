@@ -1,7 +1,7 @@
 /*
  * mesh.cpp
 
-    Copyright © 2010 John Serafino
+    Copyright ? 2010 John Serafino
     This file is part of ray3d.
 
     Ray3d is free software: you can redistribute it and/or modify
@@ -19,6 +19,9 @@
  */
 
 #include "mesh.h"
+
+#include <cstdlib>
+#include <iostream>
 
 
   HWSkinCB hwSkinInstance;
@@ -276,12 +279,14 @@
 		  animNode = (IAnimatedMeshSceneNode *)ent.animNode->clone();
 	  }
   }
-  void Entity::loadMesh(char *filename, bool planar, bool hwSkin, int skinSpeed)
+  void Entity::loadMesh(const char *filename, bool planar, bool hwSkin, int skinSpeed)
   {
 	if(type == MESH_TYPE || type == MAP_TYPE)
 	{
       IAnimatedMesh *mesh;
       mesh = Scene->getMesh(filename);
+      if(!mesh)
+        gibson_fatal("Failed to load mesh");
       if(planar == true)
       {
         Scene->getMeshManipulator()->makePlanarTextureMapping(mesh->getMesh(0), 0.003f);
@@ -295,6 +300,8 @@
 	else if(type == ANIM_TYPE)
 	{
 	  mesh = Scene->getMesh(filename);
+      if(!mesh)
+        gibson_fatal("Failed to load mesh");
       if(planar == true)
       {
         Scene->getMeshManipulator()->makePlanarTextureMapping(mesh->getMesh(0), 0.003f);
@@ -309,9 +316,11 @@
 		  HWSkinCB::getInstance()->setupNode(irrlicht, animNode, 60);
 	}
   }
-  void Entity::loadTex(char *filename)
+  void Entity::loadTex(const char *filename)
   {
 	tex = Video->getTexture(filename);
+    if(!tex)
+      gibson_fatal("Failed to load texture");
 
     if(type == MESH_TYPE || type == MAP_TYPE)
       sceneNode->setMaterialTexture(0, tex);
@@ -322,7 +331,7 @@
     	pSys->setMaterialTexture(0, tex);
     }
   }
-  void Entity::loadBsp(char *filename)
+  void Entity::loadBsp(const char *filename)
   {
     if(type == MESH_TYPE || type == MAP_TYPE)
     {
@@ -334,7 +343,7 @@
       bmesh = mesh;
     }
   }
-  void Entity::loadBumpmap(char *filename, f32 h)
+  void Entity::loadBumpmap(const char *filename, f32 h)
   {
     ITexture *normalMap = Video->getTexture(filename);
     Video->makeNormalMapTexture(normalMap, h);
@@ -351,7 +360,7 @@
     }
   }
 
-  void Entity::loadBillboard(char *filename, f32 w, f32 h)
+  void Entity::loadBillboard(const char *filename, f32 w, f32 h)
   {
     ISceneNode *billboard;
 

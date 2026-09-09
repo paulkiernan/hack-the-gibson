@@ -35,5 +35,9 @@ Makefile.bak
 # GDB trash
 .gdb_history
 
-# Project binary
+# Project binaries
 src/gibson
+src/scn_preview
+
+# Screensaver bundle
+dist/

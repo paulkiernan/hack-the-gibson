@@ -1,7 +1,7 @@
 /*
  * gui.cpp
 
-    Copyright © 2010 John Serafino
+    Copyright ù 2010 John Serafino
     This file is part of ray3d.
 
     Ray3d is free software: you can redistribute it and/or modify
@@ -20,7 +20,10 @@
 
 #include "gui.h"
 
-void Font::loadFont(char * filename)
+#include <cstdlib>
+#include <iostream>
+
+void Font::loadFont(const char *filename)
 {
     font = Gui->getFont(filename);
 }
@@ -38,9 +41,11 @@ void drawText(Font locFont, const wchar_t *text, int x, int y, int r, int g, int
 }
 
 
-void Image::loadImg(char *filename, int r, int g, int b, int a)
+void Image::loadImg(const char *filename, int r, int g, int b, int a)
 {
     img = Video->getTexture(filename);
+    if (!img)
+        gibson_fatal("Failed to load image");
     Video->makeColorKeyTexture(img, SColor(a,r,g,b));
 
     dimension2d<u32> size = img->getOriginalSize();

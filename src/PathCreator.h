@@ -52,8 +52,8 @@ class PathCreator {
 public:
 	PathCreator(video::IVideoDriver* driver,
 		scene::ISceneNode* node,
-		char* filename,
-		char* arrayname);
+		const char* filename,
+		const char* arrayname);
 
 	void drawPath(); 
 
@@ -75,7 +75,7 @@ private:
 	video::SMaterial material;
 	video::SColor color;
 
-	char* filename;
-	char* arrayname;
+	const char* filename;
+	const char* arrayname;
 	int namespacelvl;
 };

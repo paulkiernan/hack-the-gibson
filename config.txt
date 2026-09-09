@@ -1,0 +1,13 @@
+# The Gibson
+#
+# fly_speed — camera travel along the flythrough, in spline units per second.
+# The original demo was 0.9 (quite quick). Lower is slower.
+# Useful range: 0.3 (leisurely) to 0.9 (original).
+fly_speed = 0.55
+#
+# bank_strength — how hard the camera leans into turns (0 = level, 0.45 ≈ movie).
+# bank_max_degrees — clamp on roll. Negative bank_strength flips left/right.
+bank_strength = 0.45
+# bank_smoothing — seconds of roll lag. Higher is silkier (0.3–0.8).
+bank_smoothing = 0.55
+

@@ -30,6 +30,8 @@ dimension2d<u32> getScreenResolution(void){
 
     // create a NULL device to detect screen resolution
     IrrlichtDevice *nulldevice = createDevice(video::EDT_NULL);
+    if (!nulldevice)
+        return core::dimension2d<u32>(1280, 800);
     core::dimension2d<u32> deskres = nulldevice->getVideoModeList()->getDesktopResolution();
     //
     // Something weird is going on with reference counts

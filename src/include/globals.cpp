@@ -1,7 +1,7 @@
 /*
     globals.cpp
 
-    Copyright © 2010 John Serafino
+    Copyright ù 2010 John Serafino
     This file is part of ray3d.
 
     Ray3d is free software: you can redistribute it and/or modify
@@ -19,6 +19,10 @@
  */
 
 #include "globals.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
 
 IrrlichtDevice *irrlicht;
 
@@ -100,3 +104,23 @@ vector3df getMatrixRotation(const matrix4& mx)
 
 bool useHwSkinning;		// Should the engine use hardware skinning on meshes by default?
 int  hwSkinSpeed;		// How often to update skinning shader
+
+static bool g_embedded = false;
+
+void gibson_set_embedded(bool embedded)
+{
+    g_embedded = embedded;
+}
+
+bool gibson_is_embedded()
+{
+    return g_embedded;
+}
+
+void gibson_fatal(const char *msg)
+{
+    std::cerr << msg << std::endl;
+    if (g_embedded)
+        throw std::runtime_error(msg ? msg : "Gibson failed");
+    std::exit(1);
+}

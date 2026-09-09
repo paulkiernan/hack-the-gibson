@@ -2,7 +2,7 @@
     Mesh.h
     Created on: Mar 16, 2010
 
-    Copyright © 2010 John Serafino
+    Copyright ù 2010 John Serafino
     This file is part of ray3d.
 
     Ray3d is free software: you can redistribute it and/or modify
@@ -38,28 +38,25 @@ extern HWSkinCB hwSkinInstance;
 class Entity
 {
 public:
-  ILightSceneNode          *lightNode;
-  //ISceneNode             *lightNode;
-  ISceneNode		       *sceneNode;
-  IAnimatedMeshSceneNode   *animNode;
-  IParticleSystemSceneNode *pSys;
-  IMesh 				   *tmesh;
-  IAnimatedMesh			   *bmesh;
-  IAnimatedMesh			   *mesh;
-  ITexture				   *tex;
-  IImage				   *img;
+  ILightSceneNode          *lightNode = nullptr;
+  ISceneNode		       *sceneNode = nullptr;
+  IAnimatedMeshSceneNode   *animNode = nullptr;
+  IParticleSystemSceneNode *pSys = nullptr;
+  IMesh 				   *tmesh = nullptr;
+  IAnimatedMesh			   *bmesh = nullptr;
+  IAnimatedMesh			   *mesh = nullptr;
+  ITexture				   *tex = nullptr;
+  IImage				   *img = nullptr;
 
   vector2df particleSize;
 
+  bool lit = true;
+  int type = 0;
+  bool animated = false;
+  bool isVisible = true;
 
-  bool lit;        // if object should be affected by light
-  int type;        // what kind of entity it is
-  bool animated;   // if it's animated
-  bool isVisible;  // if it's visible
-
-  // holds transformation data
-  f32 rx,ry,rz;
-  f32 x,y,z;
+  f32 rx = 0, ry = 0, rz = 0;
+  f32 x = 0, y = 0, z = 0;
 
 
   Entity();
@@ -113,12 +110,12 @@ public:
   // data loading //
   //////////////////
 
-  void loadMesh(char *filename, bool planar=false, bool hwSkin=useHwSkinning, int skinSpeed=hwSkinSpeed);
+  void loadMesh(const char *filename, bool planar=false, bool hwSkin=useHwSkinning, int skinSpeed=hwSkinSpeed);
   void copyFrom(Entity ent);
-  void loadTex(char *filename);
-  void loadBsp(char *filename);
-  void loadBumpmap(char *filename, f32 h);
-  void loadBillboard(char *filename, f32 w, f32 h);
+  void loadTex(const char *filename);
+  void loadBsp(const char *filename);
+  void loadBumpmap(const char *filename, f32 h);
+  void loadBillboard(const char *filename, f32 w, f32 h);
 
 /*
   void loadBillboard(char *texture, f32 x, f32 y)

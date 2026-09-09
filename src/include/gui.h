@@ -29,7 +29,7 @@ public:
 
   Font();
 
-  void loadFont(char * filename);
+  void loadFont(const char *filename);
 };
 
 class Image
@@ -37,7 +37,7 @@ class Image
 public:
   ITexture *img;
 
-  void loadImg(char *filename, int r=0, int g=0, int b=0, int a=0);
+  void loadImg(const char *filename, int r=0, int g=0, int b=0, int a=0);
 
   void draw(int x, int y, int r=255, int g=255, int b=255, int a=255);
 

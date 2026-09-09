@@ -30,21 +30,60 @@ Pull requests welcome!
 
 # Installation
 
+Requires macOS with [Homebrew](https://brew.sh) and a C++17 compiler (Xcode Command Line Tools).
+
 ```bash
-# Install the Irrlicht 3d engine via homebrew
+# Install the Irrlicht 3d engine via Homebrew
 brew install irrlicht
 
-# Build the makefile deps
-cd src
+# Build from the project root
 make
 
-# Run!
-./gibson
+# Run (windowed). Press Escape or Q to quit.
+make run
+# or: ./src/gibson
+
+# Full-display flythrough (borderless window; Escape or Q to quit)
+./src/gibson --fullscreen
 ```
+
+The Makefile locates Irrlicht through Homebrew (`/opt/homebrew` on Apple Silicon, `/usr/local` on Intel) instead of a hardcoded Cellar version.
+
+## Screensaver
+
+Build a macOS `.saver` bundle that System Settings can load. The saver is SceneKit/Metal and does not need Homebrew at runtime.
+
+```bash
+make saver
+make install-saver
+```
+
+That copies `dist/Gibson.saver` to `~/Library/Screen Savers/Gibson.saver`. Then fully quit System Settings, reopen it, and choose **The Gibson**.
+
+The System Settings preview uses a smaller tower grid. The lock-screen saver uses the full flythrough.
+
+To iterate on the SceneKit scene without opening System Settings:
+
+```bash
+make scn
+# or: ./src/scn_preview --preview
+```
+
+Press Escape or Q to quit. The original Irrlicht windowed app is unchanged (`make` / `make run`).
+
+Camera speed and banking live in a text config:
+
+```
+~/Library/Application Support/TheGibson/config.txt
+```
+
+`fly_speed` default is `0.55` (original demo was `0.9`). `bank_strength` defaults to `0.45`; `0` keeps the camera level. `bank_smoothing` (seconds) damps the roll. Edit and trigger the saver again. `make install-saver` does not overwrite existing values.
+
+Remove the screensaver with `make uninstall-saver`.
 
 # Known Issues
 
-1. This isn't an actual screensaver installable on a mac. (YET!)
+1. The windowed app still uses Irrlicht's deprecated OpenGL path. The screensaver is SceneKit/Metal. If the System Settings preview is stale, fully quit System Settings and reopen it so it reloads the `.saver` bundle.
 
 
 # Credit

@@ -4,7 +4,7 @@
    Created on: Mar 16, 2010
 
 
-    Copyright © 2010 John Serafino
+    Copyright ? 2010 John Serafino
     This file is part of ray3d v0.01.
 
     Ray3d is free software: you can redistribute it and/or modify
@@ -25,10 +25,9 @@
 #define RAY_H_
 
 #include <iostream>
-using namespace std;
+#include <cstdio>
 
 #include <irrlicht.h>
-#include <stdio.h>
 
 #include "globals.h"
 #include "mesh.h"
@@ -51,16 +50,19 @@ public:
     /* for initializing video */
     void init(SIrrlichtCreationParameters params);
 
-    void setWindowTitle(wchar_t *title);
+    void setWindowTitle(const wchar_t *title);
 
     void hideCursor();
     void showCursor();
     void placeCursor(f32 x, f32 y);
 
-    void importZipFile(char *filename);
+    void importZipFile(const char *filename);
 
     // returns weather or not ray3d wants to be running
     bool running(void);
+
+    void pumpEvents(void);
+    bool quitRequested(void);
 
     void exit(void);
 

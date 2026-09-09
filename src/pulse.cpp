@@ -1,5 +1,5 @@
 /*
-    Copyright © 2011 John Serafino
+    Copyright  2011 John Serafino
     This file is part of The Gibson Screensaver.
 
     The Gibson Screensaver is free software: you can redistribute it and/or modify
@@ -24,8 +24,19 @@ f32 getRand(f32 low, f32 high)
     return ((f32(rand()) / f32(RAND_MAX)) * (high - low)) + low;
 }
 
-void PulseSet::init(int number)
+PulseSet::~PulseSet()
 {
+    delete[] pulse;
+    delete[] speed;
+    pulse = nullptr;
+    speed = nullptr;
+}
+
+void PulseSet::init(int number, int xSize, int ySize)
+{
+    worldX = xSize;
+    worldY = ySize;
+
     pulse = new Entity[number];
     speed = new f32[number];
 
@@ -38,8 +49,8 @@ void PulseSet::init(int number)
         pulse[i].loadMesh(gibson_config::pulse_mesh, false, false);
         pulse[i].loadTex(gibson_config::pulse_texture);
         pulse[i].setLit(false);
-        pulse[i].setPosition(TOWER_DIST * int(getRand(-TOWER_XSIZE, TOWER_XSIZE)), getRand(1,MAX_PULSE_HEIGHT), \
-                (TOWER_DIST * int(getRand(-TOWER_YSIZE, TOWER_YSIZE)) + TOWER_DIST/2));
+        pulse[i].setPosition(TOWER_DIST * int(getRand(-worldX, worldX)), getRand(1,MAX_PULSE_HEIGHT), \
+                (TOWER_DIST * int(getRand(-worldY, worldY)) + TOWER_DIST/2));
         pulse[i].translateGlobal(getRand(-TOWER_DIST/4, TOWER_DIST/4),0,getRand(-TOWER_DIST/4, TOWER_DIST/4));
 
         pulse[i].sceneNode->setMaterialType(EMT_TRANSPARENT_ALPHA_CHANNEL);
@@ -49,28 +60,39 @@ void PulseSet::init(int number)
         pulse[i].setRotation(0,90 * int(getRand(0,4)),0);
 
         speed[i] = getRand(MIN_PULSE_SPEED, MAX_PULSE_SPEED);
-        //speed[i] = 0;
+
+        if ((i % 32) == 0)
+        {
+            Ray.pumpEvents();
+            if (Ray.quitRequested())
+            {
+                pulseCount = i + 1;
+                break;
+            }
+        }
     }
 }
 
 void PulseSet::update()
 {
+    const f32 maxX = ((worldX/2) * TOWER_DIST);
+    const f32 maxZ = ((worldY/2) * TOWER_DIST);
+
     int i;
     for(i=0; i < pulseCount; i++)
     {
         pulse[i].translate(0,0,-delta * speed[i]);
 
-        if(pulse[i].getPosition().X >= MAX_PULSE_X || pulse[i].getPosition().Z >= MAX_PULSE_Z || \
-                pulse[i].getPosition().X <= -MAX_PULSE_X || pulse[i].getPosition().Z <= -MAX_PULSE_Z)
+        if(pulse[i].getPosition().X >= maxX || pulse[i].getPosition().Z >= maxZ || \
+                pulse[i].getPosition().X <= -maxX || pulse[i].getPosition().Z <= -maxZ)
         {
 
-            pulse[i].setPosition(TOWER_DIST * int(getRand(-TOWER_XSIZE, TOWER_XSIZE)), getRand(1,MAX_PULSE_HEIGHT), \
-                                        (TOWER_DIST * int(getRand(-TOWER_YSIZE, TOWER_YSIZE)) + TOWER_DIST/2));
+            pulse[i].setPosition(TOWER_DIST * int(getRand(-worldX, worldX)), getRand(1,MAX_PULSE_HEIGHT), \
+                                        (TOWER_DIST * int(getRand(-worldY, worldY)) + TOWER_DIST/2));
             pulse[i].translateGlobal(getRand(-TOWER_DIST/4, TOWER_DIST/4),0,getRand(-TOWER_DIST/4, TOWER_DIST/4));
 
             pulse[i].setRotation(0,90 * int(getRand(0,4)),0);
             speed[i] = getRand(MIN_PULSE_SPEED, MAX_PULSE_SPEED);
-            //speed[i] = 0;
         }
 
     }

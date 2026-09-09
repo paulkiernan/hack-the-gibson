@@ -83,4 +83,8 @@ vector3df getMatrixRotation(const matrix4& mx);
 extern bool useHwSkinning;		// Should the engine use hardware skinning on meshes by default?
 extern int  hwSkinSpeed;		// How often to update skinning shader
 
+void gibson_set_embedded(bool embedded);
+bool gibson_is_embedded();
+void gibson_fatal(const char *msg);
+
 #endif

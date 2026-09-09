@@ -1,7 +1,7 @@
 /*
  * ray3d.cpp
 
-    Copyright © 2010 John Serafino
+    Copyright ? 2010 John Serafino
     This file is part of ray3d.
 
     Ray3d is free software: you can redistribute it and/or modify
@@ -19,12 +19,16 @@
  */
 
 #include "ray3d.h"
+#include "macos_retina.h"
 
 RayTyp::RayTyp()  {  }
 
 /* for initializing video */
 void RayTyp::init(SIrrlichtCreationParameters params){
+    gibson_prepare_retina_workaround();
     irrlicht = createDeviceEx(params);
+    if (!irrlicht)
+        gibson_fatal("Failed to create an OpenGL window");
 
     Video=irrlicht->getVideoDriver();
     Scene=irrlicht->getSceneManager();
@@ -42,9 +46,16 @@ void RayTyp::init(SIrrlichtCreationParameters params){
 
     // set skinning mode
     useHwSkinning = true;
+
+    if (Video)
+    {
+        const core::dimension2d<u32>& sz = Video->getScreenSize();
+        gibson_fix_retina_framebuffer(sz.Width, sz.Height);
+        Video->setViewPort(rect<s32>(0, 0, (s32)sz.Width, (s32)sz.Height));
+    }
 }
 
-void RayTyp::setWindowTitle(wchar_t *title){
+void RayTyp::setWindowTitle(const wchar_t *title){
     irrlicht->setWindowCaption(title);
 }
 
@@ -58,16 +69,51 @@ void RayTyp::placeCursor(f32 x, f32 y){
     irrlicht->getCursorControl()->setPosition(x,y);
 }
 
-void RayTyp::importZipFile(char *filename){
+void RayTyp::importZipFile(const char *filename){
     irrlicht->getFileSystem()->addZipFileArchive(filename);
 }
 
 // returns weather or not ray3d wants to be running
 bool RayTyp::running(void){
+    if (gibson_should_quit() && irrlicht)
+        irrlicht->closeDevice();
+
+    if (Video)
+    {
+        const core::dimension2d<u32>& sz = Video->getScreenSize();
+        gibson_sync_gl_backing(sz.Width, sz.Height);
+    }
+    if (gibson_is_embedded())
+    {
+        if (irrlicht)
+            irrlicht->getTimer()->tick();
+        return irrlicht != nullptr;
+    }
     return irrlicht->run();
 }
 
+void RayTyp::pumpEvents(void){
+    if (gibson_is_embedded())
+        return;
+    if (irrlicht)
+        irrlicht->run();
+}
+
+bool RayTyp::quitRequested(void){
+    return gibson_should_quit() != 0;
+}
+
 void RayTyp::exit(void){
+    gibson_restore_presentation();
+    if (gibson_is_embedded())
+    {
+        /* Irrlicht 1.8's macOS destructor crashes in COpenGLSLMaterialRenderer. */
+        irrlicht = nullptr;
+        Video = nullptr;
+        Scene = nullptr;
+        Gui = nullptr;
+        return;
+    }
     // Something weird is going on with reference counts
     // TODO: figure out what's wrong with calling drop()
     //irrlicht->drop();

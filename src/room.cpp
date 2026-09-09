@@ -1,7 +1,7 @@
 /* A Gibson room, including the towers */
 
 /*
-    Copyright © 2011 John Serafino
+    Copyright ? 2011 John Serafino
     This file is part of The Gibson Screensaver.
 
     The Gibson Screensaver is free software: you can redistribute it and/or modify
@@ -21,7 +21,17 @@
 #include "room.h"
 #include "globals.h"
 
-void Room::init(){
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
+
+void Room::init(bool preview){
+    gridX = preview ? 10 : TOWER_XSIZE;
+    gridY = preview ? 10 : TOWER_YSIZE;
+    liveTowers = gridX * gridY;
+    if (liveTowers > TOWER_COUNT)
+        liveTowers = TOWER_COUNT;
+
     mesh.createMesh();
     mesh.loadMesh(gibson_config::room_mesh, false, false);
     mesh.loadTex(gibson_config::room_texture);
@@ -45,37 +55,43 @@ void Room::init(){
     //x = -9.125;
     //z = 9.125;
 
-    x = -((TOWER_XSIZE/2) * TOWER_DIST);
-    z = ((TOWER_YSIZE/2) * TOWER_DIST);
+    x = -((gridX/2) * TOWER_DIST);
+    z = ((gridY/2) * TOWER_DIST);
 
     towers[0].setPosition(x + 9.125,14,z);
 
     for(int j=0; j < TOWER_TEXTURE_COUNT; j++){
         char filename[100];
-        sprintf(filename, gibson_config::dark_towers_template_filename, j+1);
+        std::snprintf(filename, sizeof(filename), gibson_config::dark_towers_template_filename, j+1);
         towerTex[j] = Video->getTexture(filename);
+        if (!towerTex[j])
+            gibson_fatal("Failed to load dark tower texture");
     }
 
     for(int j=0; j < TOWER_TEXTURE_COUNT; j++){
         char filename[100];
-        sprintf(filename, gibson_config::light_towers_template_filename, j+1);
+        std::snprintf(filename, sizeof(filename), gibson_config::light_towers_template_filename, j+1);
         towerTex[j + TOWER_TEXTURE_COUNT] = Video->getTexture(filename);
+        if (!towerTex[j + TOWER_TEXTURE_COUNT])
+            gibson_fatal("Failed to load light tower texture");
     }
 
-    cout << "Loaded textures\n";
+    std::cout << "Loaded textures" << std::endl;
 
-    for(int i=1; i < TOWER_COUNT; i++)
+    for(int i=1; i < liveTowers; i++)
     {
         x += TOWER_DIST;
 
-        if((i+1)%(TOWER_XSIZE) == 0)
+        if((i+1)%(gridX) == 0)
         {
             z -= TOWER_DIST;
-            x = -((TOWER_XSIZE/2) * TOWER_DIST);
+            x = -((gridX/2) * TOWER_DIST);
         }
 
+        towers[i].type = MESH_TYPE;
         towers[i].sceneNode = towers[0].sceneNode->clone(0);
-        //towers[i].copyFrom(towers[0]);
+        if (!towers[i].sceneNode)
+            gibson_fatal("Failed to clone tower mesh");
         towers[i].setPosition(x + TOWER_DIST/2,14,z);
 
         if(int(getRand(0,2)) > 0)
@@ -87,6 +103,13 @@ void Room::init(){
         {
             towers[i].sceneNode->setMaterialTexture(0,towerTex[0]);
             type[i] = 1;
+        }
+
+        if ((i % 128) == 0)
+        {
+            Ray.pumpEvents();
+            if (Ray.quitRequested())
+                return;
         }
 
     }
@@ -107,7 +130,7 @@ void Room::update()
         if(currentTowerTexture >= TOWER_TEXTURE_COUNT)
             currentTowerTexture = 0;
 
-        for(int i=0; i < TOWER_COUNT; i++)
+        for(int i=0; i < liveTowers; i++)
         {
             if(type[i] == 1)
             {

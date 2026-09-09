@@ -17,8 +17,8 @@
 
 PathCreator::PathCreator(video::IVideoDriver* driver,
 		scene::ISceneNode* node,
-		char* filename,
-		char* arrayname) {
+		const char* filename,
+		const char* arrayname) {
 	this->driver = driver;
 	this->node = node;
 	this->filename = filename;
@@ -78,7 +78,7 @@ void PathCreator::save() {
 	file.open(filename, std::ios::in | std::ios::trunc);
 
 	// Check namespace level
-	char* namelvl;
+	const char* namelvl = "";
 	switch(namespacelvl) {
 	case 0:
 		namelvl = "";

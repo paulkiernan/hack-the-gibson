@@ -51,8 +51,11 @@ class Room{
 
         int currentTowerTexture;
         f32 timeSinceTowerUpdate;
+        int gridX = TOWER_XSIZE;
+        int gridY = TOWER_YSIZE;
+        int liveTowers = TOWER_COUNT;
 
-        void init();
+        void init(bool preview=false);
         void update();
 };
 
