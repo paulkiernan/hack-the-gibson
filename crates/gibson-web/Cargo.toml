@@ -12,12 +12,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 gibson-core = { workspace = true }
+gibson-types = { workspace = true }
 log = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { workspace = true, features = ["webgpu", "webgl"] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
+js-sys = "0.3"
 web-sys = { workspace = true, features = [
     "Window",
     "Document",
@@ -27,6 +29,9 @@ web-sys = { workspace = true, features = [
     "Location",
     "UrlSearchParams",
     "console",
+    "EventTarget",
+    "Node",
+    "Navigator",
 ] }
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }

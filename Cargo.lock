@@ -768,6 +768,7 @@ dependencies = [
  "pollster",
  "serde",
  "toml",
+ "wgpu",
  "windows-sys 0.59.0",
  "winit",
  "x11-dl",
@@ -803,10 +804,11 @@ name = "gibson-ffi"
 version = "2.0.0"
 dependencies = [
  "gibson-core",
+ "gibson-types",
  "log",
  "pollster",
- "raw-window-handle",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]
@@ -822,9 +824,13 @@ name = "gibson-render"
 version = "2.0.0"
 dependencies = [
  "bytemuck",
+ "gibson-atlas",
+ "gibson-floor",
  "gibson-types",
  "glam",
  "log",
+ "png",
+ "pollster",
  "wgpu",
 ]
 
@@ -853,6 +859,8 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "gibson-core",
+ "gibson-types",
+ "js-sys",
  "log",
  "wasm-bindgen",
  "wasm-bindgen-futures",

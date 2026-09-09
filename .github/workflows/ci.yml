@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  # Renderer tests that need a GPU adapter self-skip on headless runners
+  # (they print a skip message), so no software-rasterizer setup is added.
+  RUST_BACKTRACE: 1
+
+jobs:
+  macos:
+    name: macOS (saver, tests)
+    # macos-15 is the oldest GA Apple-silicon hosted image (macos-14 arm64 is
+    # deprecated); per actions/runner-images, the bare `macos-15` label is the
+    # Arm64 image, which matches the ARCHS=arm64 saver build below.
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test --workspace --exclude gibson-web
+      - name: Build saver (arm64)
+        run: make -C platform/macos ARCHS=arm64
+      - name: Package saver
+        run: |
+          cd platform/macos/build
+          zip -rq Gibson.saver.zip Gibson.saver
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gibson.saver.zip
+          path: platform/macos/build/Gibson.saver.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows (scr, tests)
+    # windows-latest currently maps to Windows Server 2025 (x64), per
+    # actions/runner-images.
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # No gibson-render (no GPU adapter on hosted runners; its tests only
+      # self-skip anyway) and no gibson-web (wasm-only crate) on native hosts.
+      - name: Run tests
+        run: cargo test -p gibson-scene -p gibson-atlas -p gibson-floor -p gibson-app
+      - name: Build release
+        run: cargo build --release -p gibson-app
+      - name: Stage .scr
+        shell: pwsh
+        run: Copy-Item target/release/gibson-app.exe Gibson.scr
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gibson.scr
+          path: Gibson.scr
+          if-no-files-found: error
+
+  linux:
+    name: Linux (xscreensaver host, tests)
+    # ubuntu-latest currently maps to Ubuntu 24.04 (x64), per
+    # actions/runner-images.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      # winit 0.30 x11/wayland backends and x11-dl: x11-dl dlopens libX11 at
+      # runtime, but winit's wayland stack links libwayland-client and needs
+      # libxkbcommon headers at build time.
+      - name: Install X11 / Wayland dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Same native test set as Windows: no gibson-render, no gibson-web.
+      - name: Run tests
+        run: cargo test -p gibson-scene -p gibson-atlas -p gibson-floor -p gibson-app
+      - name: Build release
+        run: cargo build --release -p gibson-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gibson-app
+          path: target/release/gibson-app
+          if-no-files-found: error
+
+  wasm:
+    name: wasm (web bundle)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # Prebuilt binary from the official wasm-pack GitHub release (matches the
+      # v0.15.0 the project develops against) instead of `cargo install`, which
+      # would rebuild it from source on every run.
+      - name: Install wasm-pack
+        run: |
+          curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz
+          tar -xzf wasm-pack.tar.gz
+          echo "$PWD/wasm-pack-v0.15.0-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+      - name: Build web bundle
+        run: wasm-pack build crates/gibson-web --target web --release --out-dir ../../web/pkg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: web
+          if-no-files-found: error

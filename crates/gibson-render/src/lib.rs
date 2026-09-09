@@ -1,26 +1,20 @@
 //! Gibson wgpu renderer.
 //!
-//! Batch 0 scaffold: `Renderer::new` performs the real wgpu initialization (adapter, device,
-//! surface configuration) so hosts can validate their surface path today; `render` clears the
-//! surface to `frame.palette.haze` and presents; `render_to_rgba` clears an offscreen sRGB
-//! texture to the same haze and reads the pixels back. Batch 1 replaces the frame body with the
-//! full pipeline chain (floor, instanced towers, pulses, bloom, motion blur, composite) without
-//! changing any public signature.
+//! One HDR frame chain draws the whole Gibson:
 //!
-//! WebGL2 constraints every pipeline in this crate must respect (Batch 1): no storage buffers,
-//! no compute shaders, uniform buffers ≤ 16 KiB, per-instance data via instance vertex buffers,
-//! `texture_2d_array<f32>` allowed, depth sampled with `textureLoad` on `texture_depth_2d`,
-//! render targets `Rgba16Float` + `Depth32Float`, no MSAA.
+//! 1. floor quad (analytic PCB-trace SDF over the 96x96 floor map) into `color_a` + depth,
+//! 2. instanced translucent tower boxes (atlas text, per-block animation) over it,
+//! 3. additive lane pulse ribbons,
+//! 4. bloom (prefilter + 13-tap down + 3x3 tent up; skipped at `bloom == 0`),
+//! 5. motion blur by depth reprojection (skipped at `motion_blur == 0`),
+//! 6. composite (ACES, chromatic aberration, grain, vignette) to the surface or an offscreen
+//!    sRGB texture (`render_to_rgba`).
 //!
-//! The eight WGSL sources are wired as compile-time constants in [`shaders`] (a missing file is
-//! a compile error). Batch 1 builds its pipelines from them.
-//!
-//! # wgpu 30 API notes (deviation from the frozen contract's assumptions)
-//! wgpu 30 removed `wgpu::SurfaceError`. `Surface::get_current_texture` now returns a
-//! [`wgpu::CurrentSurfaceTexture`] status enum, and presentation happens through
-//! `Queue::present(surface_texture)` (there is no `SurfaceTexture::present()`). Consequently
-//! [`RenderError::Surface`] carries a `String` instead of `wgpu::SurfaceError` — see the report
-//! of the Scaffold batch.
+//! WebGL2 constraints every pipeline in this crate respects: no storage buffers, no compute
+//! shaders, one uniform buffer <= 16 KiB per binding, per-instance data via instance-step vertex
+//! buffers, `texture_2d_array<f32>` allowed, depth read via `textureLoad` on `texture_depth_2d`,
+//! `Rgba16Float` + `Depth32Float` targets, no MSAA. Resource shapes (bind groups per pipeline,
+//! samplers, vertex strides) fit `Limits::downlevel_webgl2_defaults()`.
 
 pub mod shaders {
     //! Compile-time WGSL sources. A missing file fails the build.
@@ -43,9 +37,26 @@ pub mod shaders {
     pub const COMPOSITE: &str = include_str!("shaders/composite.wgsl");
 }
 
+mod bloom;
+mod floor;
+mod post;
+mod pulses;
+mod targets;
+mod towers;
+mod uniforms;
+mod util;
+
+use bloom::Bloom;
+use floor::Floor;
 use gibson_types::{AtlasImage, FloorMap, FrameData, Settings};
 use glam::Mat4;
+use post::Post;
+use pulses::Pulses;
 use std::fmt;
+use targets::{SceneTargets, HDR_FORMAT};
+use towers::Towers;
+use uniforms::{FrameUniform, projection_matrix, view_matrix};
+use util::pipeline_layout;
 
 /// Errors surfaced by the renderer.
 #[derive(Debug)]
@@ -74,6 +85,10 @@ impl fmt::Display for RenderError {
 impl std::error::Error for RenderError {}
 
 /// The Gibson renderer: device/queue plus an optional presentable surface.
+///
+/// Several fields (`scene_bgl`, `scene_layout`, the atlas/floor textures) exist only to keep
+/// GPU resources alive for the lifetime of the bind groups that reference them.
+#[allow(dead_code)]
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -82,11 +97,31 @@ pub struct Renderer {
     width: u32,
     height: u32,
     scale: f32,
-    /// Previous-frame view-projection matrix for motion-blur reprojection (Batch 1).
-    pub(crate) prev_view_proj: Mat4,
-    /// Marker so the atlas/floor/settings the stub receives are part of the API even before
-    /// Batch 1 builds textures from them.
-    _content: (),
+
+    // Shared scene bindings: uniform + atlas + floor + samplers.
+    scene_bgl: wgpu::BindGroupLayout,
+    scene_layout: wgpu::PipelineLayout,
+    atlas_tex: wgpu::Texture,
+    atlas_sampler: wgpu::Sampler,
+    floor_tex: wgpu::Texture,
+    uniform_buf: wgpu::Buffer,
+    scene_bg: wgpu::BindGroup,
+
+    floor: Floor,
+    towers: Towers,
+    pulses: Pulses,
+    targets: SceneTargets,
+    bloom: Bloom,
+    post: Post,
+
+    // Bind groups that reference per-size views (rebuilt on resize).
+    motion_bg: wgpu::BindGroup,
+    composite_a_bg: wgpu::BindGroup,
+    composite_b_bg: wgpu::BindGroup,
+
+    /// Previous-frame view-projection matrix for motion-blur reprojection.
+    prev_view_proj: Mat4,
+    has_prev: bool,
 }
 
 fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
@@ -96,13 +131,141 @@ fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
     )
 }
 
+/// Sampler for the tower text atlas: linear in x/y, clamped.
+fn atlas_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("gibson-atlas-sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    })
+}
+
+fn scene_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("gibson-scene-bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) -> wgpu::Texture {
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("gibson-atlas"),
+        size: wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: atlas.layers,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let bpr = atlas.width as u32 * 4;
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &atlas.rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(bpr),
+            rows_per_image: Some(atlas.height),
+        },
+        wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: atlas.layers,
+        },
+    );
+    tex
+}
+
+fn upload_floor(device: &wgpu::Device, queue: &wgpu::Queue, floor: &FloorMap) -> wgpu::Texture {
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("gibson-floor-map"),
+        size: wgpu::Extent3d {
+            width: floor.cells,
+            height: floor.cells,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        bytemuck::cast_slice(&floor.data),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(floor.cells * 4),
+            rows_per_image: None,
+        },
+        wgpu::Extent3d {
+            width: floor.cells,
+            height: floor.cells,
+            depth_or_array_layers: 1,
+        },
+    );
+    tex
+}
+
 impl Renderer {
-    /// Initialize the GPU: request an adapter (compatible with `surface` when given), a device +
-    /// queue, and configure the surface at `width·scale × height·scale`.
-    ///
-    /// When `surface` is `None` the renderer is offscreen-only: `render` is unavailable but
-    /// `render_to_rgba` still works. `atlas`, `floor`, and `settings` are consumed by Batch 1 to
-    /// build the content pipelines; the scaffold only holds them.
+    /// Initialize the GPU: adapter/device/surface plus the full pipeline set.
     pub async fn new(
         instance: &wgpu::Instance,
         surface: Option<wgpu::Surface<'static>>,
@@ -133,7 +296,12 @@ impl Renderer {
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("gibson-device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                // Keep every resource shape inside the WebGL2 envelope so the same pipelines
+                // work on the downlevel web target... but let the resolution limits come from
+                // the adapter: hosts render at physical pixels (e.g. 2x Retina can exceed the
+                // WebGL2-envelope's 2048 max texture dimension).
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                    .using_resolution(adapter.limits()),
                 experimental_features: wgpu::ExperimentalFeatures::default(),
                 memory_hints: wgpu::MemoryHints::default(),
                 trace: wgpu::Trace::Off,
@@ -145,7 +313,6 @@ impl Renderer {
         let mut surface_format = None;
         if let Some(surf) = &surface {
             let caps = surf.get_capabilities(&adapter);
-            // Prefer an sRGB format; fall back to the surface's first offered format.
             let format = caps
                 .formats
                 .iter()
@@ -175,13 +342,78 @@ impl Renderer {
                 desired_maximum_frame_latency: 2,
             };
             surf.configure(&device, &config);
-            log::info!(
-                "gibson-render: surface configured ({format:?}, {width}x{height}, {alpha_mode:?})"
-            );
             surface_format = Some(format);
         }
+        let _ = settings;
 
-        let _ = (atlas, floor, settings); // Batch 1: build atlas/floor textures and pipelines here.
+        // Everything below creates pipelines/resources; capture any validation error (WGSL
+        // compile failures included) and surface it as RenderError so hosts can report it.
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+        let scene_bgl = scene_bgl(&device);
+        let scene_layout = pipeline_layout(&device, "gibson-scene-layout", &scene_bgl);
+        let atlas_sampler = atlas_sampler(&device);
+
+        let atlas_tex = upload_atlas(&device, &queue, atlas);
+        let floor_tex = upload_floor(&device, &queue, floor);
+
+        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gibson-uniform"),
+            size: std::mem::size_of::<FrameUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let atlas_view = atlas_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let floor_view = floor_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gibson-scene-bg"),
+            layout: &scene_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&atlas_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&floor_view),
+                },
+            ],
+        });
+
+        let floor_pass = Floor::new(&device, &scene_layout, HDR_FORMAT, targets::DEPTH_FORMAT)?;
+        let towers_pass = Towers::new(&device, &scene_layout, HDR_FORMAT, targets::DEPTH_FORMAT)?;
+        let pulses_pass = Pulses::new(&device, &scene_layout, HDR_FORMAT, targets::DEPTH_FORMAT)?;
+
+        let post = Post::new(&device);
+        let mut bloom = Bloom::new(&device);
+
+        let targets = SceneTargets::new(&device, width, height)?;
+        let post_sampler = post.sampler.clone();
+        let bloom0 = build_bloom_and_groups(
+            &device,
+            &mut bloom,
+            width,
+            height,
+            &uniform_buf,
+            &post_sampler,
+            &post,
+            &targets,
+        );
+
+        if let Some(err) = error_scope.pop().await {
+            return Err(RenderError::Other(format!(
+                "pipeline/resource validation failed: {err}"
+            )));
+        }
 
         Ok(Renderer {
             device,
@@ -191,8 +423,24 @@ impl Renderer {
             width,
             height,
             scale,
+            scene_bgl,
+            scene_layout,
+            atlas_tex,
+            atlas_sampler,
+            floor_tex,
+            uniform_buf,
+            scene_bg,
+            floor: floor_pass,
+            towers: towers_pass,
+            pulses: pulses_pass,
+            targets,
+            bloom,
+            post,
+            motion_bg: bloom0.0,
+            composite_a_bg: bloom0.1,
+            composite_b_bg: bloom0.2,
             prev_view_proj: Mat4::IDENTITY,
-            _content: (),
+            has_prev: false,
         })
     }
 
@@ -216,10 +464,39 @@ impl Renderer {
             };
             surf.configure(&self.device, &config);
         }
+        self.rebuild_size_dependent();
         log::debug!("gibson-render: resized to {w}x{h} (scale {scale})");
     }
 
-    /// Render one frame to the surface. Scaffold: clear to the frame's haze color and present.
+    /// Recreate the HDR targets, bloom chain and view-dependent bind groups at the current size.
+    fn rebuild_size_dependent(&mut self) {
+        let Ok(targets) = SceneTargets::new(&self.device, self.width, self.height) else {
+            log::error!("gibson-render: failed to rebuild targets at {}x{}", self.width, self.height);
+            return;
+        };
+        self.targets = targets;
+        self.bloom.rebuild(
+            &self.device,
+            self.width,
+            self.height,
+            &self.uniform_buf,
+            &self.post.sampler,
+            &self.targets.view_a,
+        );
+        let (mbg, cbg_a, cbg_b) = build_view_bind_groups(
+            &self.device,
+            &self.uniform_buf,
+            &self.bloom,
+            &self.post.sampler,
+            &self.post,
+            &self.targets,
+        );
+        self.motion_bg = mbg;
+        self.composite_a_bg = cbg_a;
+        self.composite_b_bg = cbg_b;
+    }
+
+    /// Render one frame to the surface.
     pub fn render(&mut self, frame: &FrameData) -> Result<(), RenderError> {
         let Some(surf) = &self.surface else {
             return Err(RenderError::Other(
@@ -229,7 +506,6 @@ impl Renderer {
         let texture = match surf.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            // Transient conditions: skip this frame and try again on the next one.
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 log::debug!("gibson-render: surface busy/occluded; frame skipped");
                 return Ok(());
@@ -240,50 +516,18 @@ impl Renderer {
                 )));
             }
         };
-        // Batch 1: the motion-blur pass reprojects this frame against prev_view_proj; the
-        // scaffold only carries the field forward from Renderer::new (IDENTITY).
-        let _ = self.prev_view_proj;
+        let format = self
+            .surface_format
+            .ok_or_else(|| RenderError::Other("no surface format".into()))?;
         let view = texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("gibson-clear"),
-            });
-        {
-            let haze = frame.palette.haze;
-            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gibson-clear-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: haze[0] as f64,
-                            g: haze[1] as f64,
-                            b: haze[2] as f64,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        }
-        self.queue.submit(Some(encoder.finish()));
+        self.run_chain(frame, &view, format)?;
         self.queue.present(texture);
         Ok(())
     }
 
     /// Render one frame offscreen and read back tightly packed sRGB8 rows, top row first.
-    ///
-    /// Scaffold: clears an offscreen `Rgba8UnormSrgb` texture to the haze color. The returned
-    /// buffer is `width * height * 4` bytes, tightly packed.
     pub fn render_to_rgba(&mut self, frame: &FrameData) -> Result<(u32, u32, Vec<u8>), RenderError> {
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let size = wgpu::Extent3d {
@@ -302,35 +546,7 @@ impl Renderer {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("gibson-offscreen-clear"),
-            });
-        {
-            let haze = frame.palette.haze;
-            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gibson-offscreen-clear-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: haze[0] as f64,
-                            g: haze[1] as f64,
-                            b: haze[2] as f64,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        }
+        self.run_chain(frame, &view, format)?;
 
         // Read back with the 256-byte row alignment wgpu requires for buffers, then strip it.
         let bytes_per_row = align_up(self.width as usize * 4, 256);
@@ -341,6 +557,11 @@ impl Renderer {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("gibson-readback"),
+            });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -372,6 +593,213 @@ impl Renderer {
         buffer.unmap();
         Ok((self.width, self.height, rgba))
     }
+
+    /// Run the full HDR chain and composite into `final_view`.
+    fn run_chain(
+        &mut self,
+        frame: &FrameData,
+        final_view: &wgpu::TextureView,
+        final_format: wgpu::TextureFormat,
+    ) -> Result<(), RenderError> {
+        // Camera matrices.
+        let vp = projection_matrix(&frame.camera, self.width, self.height)
+            * view_matrix(&frame.camera);
+        let prev = if self.has_prev {
+            self.prev_view_proj
+        } else {
+            // First frame: use the frame's own prev pose so nothing jumps.
+            projection_matrix(&frame.prev_camera, self.width, self.height)
+                * view_matrix(&frame.prev_camera)
+        };
+        let srgb_target = final_format.is_srgb();
+        let uniform = FrameUniform::new(vp, prev, frame, self.width, self.height, srgb_target);
+        self.queue
+            .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniform));
+
+        // Instance + geometry uploads.
+        self.towers
+            .upload(&self.device, &self.queue, frame.towers);
+        self.pulses
+            .upload(&self.device, &self.queue, frame.pulses);
+        self.floor
+            .ensure_grid(&self.device, &self.queue, frame.settings.grid as f32);
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("gibson-frame"),
+            });
+
+        // --- Scene: floor, towers, pulses into color_a + depth. ---
+        {
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-scene-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.targets.view_a,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.targets.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_bind_group(0, &self.scene_bg, &[]);
+            rp.set_pipeline(&self.floor.pipeline);
+            self.floor.draw(&mut rp);
+            rp.set_pipeline(&self.towers.pipeline);
+            self.towers
+                .draw(&mut rp, frame.towers.len() as u32);
+            rp.set_pipeline(&self.pulses.pipeline);
+            self.pulses
+                .draw(&mut rp, frame.pulses.len() as u32);
+        }
+
+        // --- Bloom (skipped when settings.bloom == 0). ---
+        if frame.settings.bloom > 0.0 {
+            self.bloom.run(&mut encoder);
+        }
+
+        // --- Motion blur: color_a + depth -> color_b (skipped when motion_blur == 0). ---
+        let motion_on = frame.settings.motion_blur > 0.0;
+        if motion_on {
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-motion-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.targets.view_b,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_pipeline(self.post.motion());
+            rp.set_bind_group(0, &self.motion_bg, &[]);
+            rp.set_vertex_buffer(0, self.post.triangle().slice(..));
+            rp.draw(0..3, 0..1);
+        }
+
+        // --- Composite to the final target. ---
+        {
+            let src_bg = if motion_on {
+                &self.composite_b_bg
+            } else {
+                &self.composite_a_bg
+            };
+            let pipeline = self
+                .post
+                .composite_pipeline(&self.device, final_format)
+                .clone();
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-composite-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: final_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_pipeline(&pipeline);
+            rp.set_bind_group(0, src_bg, &[]);
+            rp.set_vertex_buffer(0, self.post.triangle().slice(..));
+            rp.draw(0..3, 0..1);
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+        self.prev_view_proj = vp;
+        self.has_prev = true;
+        Ok(())
+    }
+}
+
+/// Build the bloom chain and every bind group that depends on the current targets.
+fn build_bloom_and_groups(
+    device: &wgpu::Device,
+    bloom: &mut Bloom,
+    width: u32,
+    height: u32,
+    uniform: &wgpu::Buffer,
+    sampler: &wgpu::Sampler,
+    post: &Post,
+    targets: &SceneTargets,
+) -> (wgpu::BindGroup, wgpu::BindGroup, wgpu::BindGroup) {
+    bloom.rebuild(device, width, height, uniform, sampler, &targets.view_a);
+    build_view_bind_groups(device, uniform, bloom, sampler, post, targets)
+}
+
+/// (motion_bg, composite_bg_a, composite_bg_b)
+fn build_view_bind_groups(
+    device: &wgpu::Device,
+    uniform: &wgpu::Buffer,
+    bloom: &Bloom,
+    sampler: &wgpu::Sampler,
+    post: &Post,
+    targets: &SceneTargets,
+) -> (wgpu::BindGroup, wgpu::BindGroup, wgpu::BindGroup) {
+    let bloom0 = bloom.level0_view();
+    let mk = |layout: &wgpu::BindGroupLayout,
+              color: &wgpu::TextureView,
+              bloom_view: Option<&wgpu::TextureView>,
+              depth: bool| {
+        let mut entries = vec![
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(color),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ];
+        if let Some(bv) = bloom_view {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(bv),
+            });
+        } else if depth {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&targets.depth_view),
+            });
+        }
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gibson-view-bg"),
+            layout,
+            entries: &entries,
+        })
+    };
+    let motion_bg = mk(&post.motion_bgl, &targets.view_a, None, true);
+    let composite_a_bg = mk(&post.composite_bgl, &targets.view_a, bloom0, false);
+    let composite_b_bg = mk(&post.composite_bgl, &targets.view_b, bloom0, false);
+    (motion_bg, composite_a_bg, composite_b_bg)
 }
 
 /// Round `v` up to the next multiple of `align`.

@@ -11,8 +11,10 @@ homepage.workspace = true
 crate-type = ["staticlib"]
 
 [dependencies]
+gibson-types = { workspace = true }
 gibson-core = { workspace = true }
+# SurfaceTargetUnsafe / wgpu::rwh come from wgpu itself so the handle versions match.
+wgpu = { workspace = true }
 serde_json = { workspace = true }
-raw-window-handle = { workspace = true }
 pollster = { workspace = true }
 log = { workspace = true }

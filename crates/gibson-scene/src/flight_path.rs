@@ -22,6 +22,9 @@
 //! The legacy spline itself was a *ping-pong* (alternating-direction) Catmull-Rom over 40 spans;
 //! the Batch 1 spec replaces that with a **closed Catmull-Rom that wraps continuously**, which is
 //! the intended modernization (no direction reversal at the seam).
+
+use glam::Vec3;
+
 pub(crate) const WAYPOINTS: [[f32; 3]; 39] = [
     [0.0392192, 6.95062, -32.1667],
     [0.13452, 6.5646, -55.4633],
@@ -63,3 +66,56 @@ pub(crate) const WAYPOINTS: [[f32; 3]; 39] = [
     [28.3579, 10.8269, -16.8861],
     [2.34459, 9.89253, -17.0397],
 ];
+
+/// Catmull-Rom tension (legacy `GIBSON_FLY_TIGHTNESS`).
+const TIGHTNESS: f32 = 0.5;
+
+/// One closed-loop flight path over the 39 unique legacy waypoints. `position(s)` samples a
+/// closed Catmull-Rom spline (tension 0.5); `s` is measured in segments and wraps forever.
+#[derive(Clone, Copy, Debug)]
+pub struct FlightPath {
+    waypoints: [[f32; 3]; WAYPOINTS.len()],
+}
+
+impl FlightPath {
+    /// The legacy 39 unique control points (z negated for the right-handed world).
+    pub fn default_loop() -> FlightPath {
+        FlightPath {
+            waypoints: WAYPOINTS,
+        }
+    }
+
+    /// Length of the closed loop in segments (`39.0` for the default loop).
+    pub fn len_segments(&self) -> f32 {
+        self.waypoints.len() as f32
+    }
+
+    /// Position along the closed loop at `s` segments: closed Catmull-Rom (tension 0.5),
+    /// segment `i` from `P[i-1], P[i], P[i+1], P[i+2]` mod 39. Negative `s` wraps; the loop is
+    /// `C¹` across the seam because the neighbors wrap cyclically.
+    pub fn position(&self, s: f32) -> [f32; 3] {
+        let pts = &self.waypoints;
+        let n = pts.len();
+        let span = n as f32;
+        let s = s.rem_euclid(span);
+        let i = s.floor() as usize; // 0..=n-1
+        let u = s - i as f32;
+
+        let p0 = Vec3::from_array(pts[(i + n - 1) % n]);
+        let p1 = Vec3::from_array(pts[i]);
+        let p2 = Vec3::from_array(pts[(i + 1) % n]);
+        let p3 = Vec3::from_array(pts[(i + 2) % n]);
+
+        // Hermite basis (legacy gibson_spline_at).
+        let u2 = u * u;
+        let u3 = u2 * u;
+        let h1 = 2.0 * u3 - 3.0 * u2 + 1.0;
+        let h2 = -2.0 * u3 + 3.0 * u2;
+        let h3 = u3 - 2.0 * u2 + u;
+        let h4 = u3 - u2;
+        let t1 = (p2 - p0) * TIGHTNESS;
+        let t2 = (p3 - p1) * TIGHTNESS;
+
+        (p1 * h1 + p2 * h2 + t1 * h3 + t2 * h4).to_array()
+    }
+}

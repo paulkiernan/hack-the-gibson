@@ -1,105 +1,65 @@
-//! Hack the Gibson desktop windowed app.
+//! Hack the Gibson — desktop hosts.
 //!
-//! Batch 0 scaffold: a minimal winit 0.30 `ApplicationHandler` that opens a 1280×800 window,
-//! builds `Gibson` over a wgpu surface, and redraws continuously. Batch 1 replaces this file
-//! wholesale with the full CLI/config/snapshot/screensaver host.
+//! One binary, four hosts:
+//! - a windowed desktop app (winit, all platforms),
+//! - `--snapshot <png>`: a deterministic offscreen still for CI/screenshots,
+//! - a Linux xscreensaver hack rendering into an existing X11 window,
+//! - a Windows `.scr` implementing the classic `/s`, `/p <hwnd>`, `/c` protocol.
+//!
+//! Settings precedence everywhere: `defaults < gibson.toml < CLI overrides`.
 
-use std::sync::Arc;
-use std::time::Instant;
+mod cli;
+mod config;
+mod desktop;
+mod saver_args;
+mod snapshot;
 
-use gibson_core::{Gibson, SurfaceTarget};
-use gibson_types::Settings;
-use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowId};
+#[cfg(target_os = "linux")]
+mod linux;
 
-fn main() {
+#[cfg(windows)]
+mod windows;
+
+use clap::Parser;
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
     env_logger::init();
-    let event_loop = EventLoop::new().expect("create event loop");
-    event_loop.set_control_flow(ControlFlow::Poll);
-    let mut app = App {
-        window: None,
-        gibson: None,
-        start: None,
-    };
-    if let Err(e) = event_loop.run_app(&mut app) {
-        eprintln!("event loop error: {e}");
-        std::process::exit(1);
-    }
-}
 
-struct App {
-    window: Option<Arc<Window>>,
-    gibson: Option<Gibson>,
-    start: Option<Instant>,
-}
-
-impl ApplicationHandler for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
-            return;
+    // The Windows screensaver protocol hands the .scr arguments clap cannot
+    // parse (`/s`, `/p <hwnd>`, `/c[:hwnd]`, with assorted separators), so
+    // detect those before clap sees the command line. The detector itself is
+    // platform-independent and unit-tested on every host.
+    #[cfg(windows)]
+    {
+        let argv: Vec<String> = std::env::args().collect();
+        if let Some(mode) = saver_args::detect(&argv[1..]) {
+            return finish(windows::run(mode));
         }
-        let attributes = Window::default_attributes()
-            .with_title("Hack the Gibson")
-            .with_inner_size(LogicalSize::new(1280.0, 800.0));
-        let window = Arc::new(event_loop.create_window(attributes).expect("create window"));
-        let size = window.inner_size();
-        let scale = window.scale_factor() as f32;
-
-        // wgpu init is async; the scaffold blocks on it once at startup.
-        let gibson = pollster::block_on(Gibson::new(
-            SurfaceTarget::Window(window.clone().into()),
-            size.width,
-            size.height,
-            scale,
-            Settings::default(),
-        ))
-        .expect("initialize gibson");
-
-        self.start = Some(Instant::now());
-        self.gibson = Some(gibson);
-        self.window = Some(window);
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => {
-                if let Some(window) = &self.window {
-                    let scale = window.scale_factor() as f32;
-                    if let Some(gibson) = &mut self.gibson {
-                        gibson.resize(size.width, size.height, scale);
-                    }
-                }
-            }
-            WindowEvent::RedrawRequested => {
-                if let (Some(gibson), Some(start)) = (&mut self.gibson, self.start) {
-                    let t = start.elapsed().as_secs_f64();
-                    if let Err(e) = gibson.frame(t) {
-                        log::error!("frame error: {e}");
-                    }
-                }
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        physical_key: PhysicalKey::Code(code),
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                if matches!(code, KeyCode::Escape | KeyCode::KeyQ) {
-                    event_loop.exit();
-                }
-            }
-            _ => {}
+    let cli = cli::Cli::parse();
+
+    // Linux xscreensaver host: xscreensaver launches the hack with
+    // `--window-id <xid>` (or sets XSCREENSAVER_WINDOW); adopt that window.
+    #[cfg(target_os = "linux")]
+    if cli.x11_window_arg().is_some() {
+        return finish(linux::run(&cli));
+    }
+
+    if cli.snapshot.is_some() {
+        finish(snapshot::run(&cli))
+    } else {
+        finish(desktop::run(&cli))
+    }
+}
+
+fn finish(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("gibson-app: {e}");
+            ExitCode::FAILURE
         }
     }
 }

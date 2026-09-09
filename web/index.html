@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hack the Gibson</title>
+  <meta name="description" content="WebGPU/WebGL2 flythrough of the Gibson tower city from the 1995 film Hackers, rebuilt in Rust and wgpu.">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <canvas id="gibson"></canvas>
+  <div id="status" role="status"></div>
+  <a id="repo" href="https://github.com/paulkiernan/hack-the-gibson">paulkiernan/hack-the-gibson</a>
+  <script type="module">
+    import init from './pkg/gibson_web.js';
+    init().catch((err) => {
+      const status = document.getElementById('status');
+      if (status) status.textContent = 'Failed to load the WebAssembly module: ' + err;
+      console.error('gibson: module init failed', err);
+    });
+  </script>
+</body>
+</html>

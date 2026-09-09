@@ -13,3 +13,10 @@ wgpu = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
 log = { workspace = true }
+
+[dev-dependencies]
+gibson-atlas = { workspace = true }
+gibson-floor = { workspace = true }
+png = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }

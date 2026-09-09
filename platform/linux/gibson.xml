@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!--
+  xscreensaver hack descriptor for Hack the Gibson.
+
+  Install: copy the built `gibson-app` binary somewhere on PATH (or give an
+  absolute path in your .xscreensaver `programs:` line), copy this file to
+  /usr/share/xscreensaver/config/gibson.xml, then add the programs line from
+  platform/linux/README.md to ~/.xscreensaver.
+
+  xscreensaver launches the hack with `--window-id <xid>` (an X11 window this
+  process must draw into); newer versions set $XSCREENSAVER_WINDOW instead,
+  which the binary also honors.
+-->
+<screensaver name="gibson" _label="Hack the Gibson">
+
+  <command arg="--window-id"/>
+
+  <number id="speed" type="slider"
+          arg="--speed" _label="Fly speed"
+          low="0.05" high="3.0" default="0.55" step="0.05" convert="float"/>
+
+  <number id="pulses" type="slider"
+          arg="--pulses" _label="Pulse streaks"
+          low="0" high="2000" default="400" step="10" convert="int"/>
+
+</screensaver>
