@@ -88,8 +88,8 @@ async fn run() -> Result<(), String> {
 
     // Logical (CSS) size goes to `Gibson`; the renderer derives the physical render size from
     // it via `scale`. The canvas backing store is set to that same physical size.
-    let (width, height, scale) = layout(&window, &canvas);
-    log::info!("gibson-web: viewport {width}x{height} css px, scale {scale}");
+    let (width, height, scale) = layout(&window, &canvas, settings.render_scale);
+    log::info!("gibson-web: viewport {width}x{height} css px, scale {scale} (render_scale {})", settings.render_scale);
     let target = wgpu::SurfaceTarget::Canvas(canvas.clone());
     let gibson = Gibson::new(SurfaceTarget::Window(target), width, height, scale, settings)
         .await
@@ -127,7 +127,9 @@ fn start_loop(window: &Window, state: Rc<State>) -> Result<(), String> {
         let raf: Closure<dyn FnMut(f64)> = Closure::own_assert_unwind_safe(move |ts: f64| {
             let window = web_sys::window().expect("window is open while animating");
             if st.resize_pending.replace(false) {
-                let (w, h, scale) = layout(&window, &st.canvas);
+                // Mirror whatever settings are active (including any future set_settings call).
+                let render_scale = st.gibson.borrow().settings().render_scale;
+                let (w, h, scale) = layout(&window, &st.canvas, render_scale);
                 log::info!("gibson-web: resize to {w}x{h} css px, scale {scale}");
                 st.gibson.borrow_mut().resize(w, h, scale);
             }
@@ -175,9 +177,12 @@ fn find_canvas(document: &Document) -> Result<HtmlCanvasElement, String> {
 
 /// Measure the viewport and lay the canvas out to match.
 ///
-/// Returns the logical (CSS-pixel) size and the pixel ratio; the canvas backing store is set to
-/// `logical * scale` so it exactly matches what the renderer configures for the surface.
-fn layout(window: &Window, canvas: &HtmlCanvasElement) -> (u32, u32, f32) {
+/// `render_scale` is `Settings::render_scale` (the `?scale=` performance knob). Returns the
+/// logical (CSS-pixel) size and the combined `device_pixel_ratio * render_scale`; the canvas
+/// backing store is set to `logical * scale` so it exactly matches the (possibly downscaled)
+/// resolution the renderer configures for the surface. The CSS box is untouched, so the canvas
+/// still fills the viewport at full size while only the backing store shrinks.
+fn layout(window: &Window, canvas: &HtmlCanvasElement, render_scale: f32) -> (u32, u32, f32) {
     let css_w = window
         .inner_width()
         .ok()
@@ -191,7 +196,7 @@ fn layout(window: &Window, canvas: &HtmlCanvasElement) -> (u32, u32, f32) {
     let dpr = window.device_pixel_ratio().clamp(0.5, MAX_DPR);
     let logical_w = css_w.round().max(1.0) as u32;
     let logical_h = css_h.round().max(1.0) as u32;
-    let scale = dpr as f32;
+    let scale = (dpr as f32) * render_scale;
     canvas.set_width(((logical_w as f32) * scale).round().max(1.0) as u32);
     canvas.set_height(((logical_h as f32) * scale).round().max(1.0) as u32);
     (logical_w, logical_h, scale)

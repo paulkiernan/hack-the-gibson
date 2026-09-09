@@ -17,4 +17,8 @@ gibson-core = { workspace = true }
 wgpu = { workspace = true }
 serde_json = { workspace = true }
 pollster = { workspace = true }
-log = { workspace = true }
+log = { workspace = true, features = ["std"] }
+# os_log sink for the `log` facade (forward Rust-side diagnostics to the
+# unified log); default features (logger/dashmap) unused - we hand-roll a
+# two-line Log impl over oslog::OsLog.
+oslog = { version = "0.2", default-features = false }

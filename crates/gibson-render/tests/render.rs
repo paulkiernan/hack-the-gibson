@@ -200,6 +200,126 @@ fn tower_in_front_produces_pixels() {
     );
 }
 
+/// Atlas pixel rect of `block` inside `panel` (variant A): (x0, y0, x1, y1), all inclusive.
+fn block_rect(a: &AtlasImage, panel: usize, block: u8) -> Option<(u32, u32, u32, u32)> {
+    let w = ATLAS_WIDTH as usize;
+    let h = ATLAS_HEIGHT as usize;
+    let base = panel * w * h;
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    for row in 0..h {
+        for col in 0..w {
+            if a.rgba[(base + row * w + col) * 4 + 2] == block {
+                x0 = x0.min(col as u32);
+                y0 = y0.min(row as u32);
+                x1 = x1.max(col as u32);
+                y1 = y1.max(row as u32);
+            }
+        }
+    }
+    if x1 < x0 {
+        None
+    } else {
+        Some((x0, y0, x1, y1))
+    }
+}
+
+/// Regression test for the panel metadata `textureLoad`: the atlas-array fetch must pass the
+/// *panel* as the array index and 0 as the mip level. With the arguments swapped the metadata
+/// (block id B, block-local v G) was read from panel 0 for every panel, so a `highlight_block`
+/// on any other panel either never fired or lit panel 0's geometry. The test highlights two
+/// disjoint blocks of a non-zero panel whose ids do not exist in panel 0: each highlight must
+/// change the image, and the two changed-pixel sets must not overlap (a highlight that fired on
+/// the wrong panel or wrong block would overlap or vanish).
+#[test]
+fn highlight_block_lights_only_its_own_panel_block() {
+    use std::collections::HashSet;
+
+    let s = settings();
+    let a = atlas();
+    let panel0: HashSet<u8> = a.blocks_per_panel[0].iter().copied().collect();
+    let (panel, id_x, id_y) = 'pick: {
+        for p in 1..ATLAS_PANELS as usize {
+            let ids: Vec<u8> = a.blocks_per_panel[p]
+                .iter()
+                .copied()
+                .filter(|id| !panel0.contains(id))
+                .collect();
+            for (i, &x) in ids.iter().enumerate() {
+                for &y in &ids[i + 1..] {
+                    let rx = block_rect(&a, p, x).unwrap();
+                    let ry = block_rect(&a, p, y).unwrap();
+                    // Well separated (>24 atlas px) so linear edge sampling cannot bridge them.
+                    let separated = rx.2 + 24 < ry.0 || ry.2 + 24 < rx.0 || rx.3 + 24 < ry.1 || ry.3 + 24 < rx.1;
+                    let big_enough = rx.2 - rx.0 >= 8 && ry.2 - ry.0 >= 8;
+                    if separated && big_enough {
+                        break 'pick (p, x, y);
+                    }
+                }
+            }
+        }
+        eprintln!("skipped: no panel with two panel-0-free disjoint blocks");
+        return;
+    };
+    let mut r = match renderer_at(320, 240, 1.0, &s) {
+        Some(r) => r,
+        None => return,
+    };
+    let pose = camera([0.0, 20.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]);
+    let tower = |hl: u32| TowerInstance {
+        position: [0.0, 0.0, -40.0],
+        anim_phase: 0.25,
+        face_layers: [panel as u32; 4],
+        top_layer: 4,
+        highlight_block: hl,
+        highlight_t: 1.0,
+        height: 38.0, // one band: the +z face maps the whole panel
+    };
+
+    let diff = |rgba_a: &[u8], rgba_b: &[u8]| -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        for (i, (pa, pb)) in rgba_a.chunks_exact(4).zip(rgba_b.chunks_exact(4)).enumerate() {
+            if (pa[0] as i32 - pb[0] as i32).abs() > 4
+                || (pa[1] as i32 - pb[1] as i32).abs() > 4
+                || (pa[2] as i32 - pb[2] as i32).abs() > 4
+            {
+                out.push((i % 320, i / 320));
+            }
+        }
+        out
+    };
+
+    let tx = tower(id_x as u32);
+    let ty = tower(id_y as u32);
+    let t0 = tower(0);
+    let base = empty_frame(5.0, pose, &s, std::slice::from_ref(&t0), &[]);
+    let hx = empty_frame(5.0, pose, &s, std::slice::from_ref(&tx), &[]);
+    let hy = empty_frame(5.0, pose, &s, std::slice::from_ref(&ty), &[]);
+    let (_, _, base_rgba) = r.render_to_rgba(&base).expect("render base");
+    let (_, _, x_rgba) = r.render_to_rgba(&hx).expect("render highlight x");
+    let (_, _, y_rgba) = r.render_to_rgba(&hy).expect("render highlight y");
+
+    let dx = diff(&x_rgba, &base_rgba);
+    let dy = diff(&y_rgba, &base_rgba);
+    assert!(
+        dx.len() >= 30,
+        "highlighting block {id_x} of panel {panel} must change the image ({} px changed)",
+        dx.len()
+    );
+    assert!(
+        dy.len() >= 30,
+        "highlighting block {id_y} of panel {panel} must change the image ({} px changed)",
+        dy.len()
+    );
+    // A highlight must light its own block only: the two changed sets must be disjoint.
+    let xs: HashSet<(usize, usize)> = dx.iter().copied().collect();
+    let overlap = dy.iter().filter(|p| xs.contains(p)).count();
+    assert!(
+        overlap == 0,
+        "block {id_x} and {id_y} highlights overlap on {} pixels (metadata read from the wrong panel?)",
+        overlap
+    );
+}
+
 #[test]
 fn floor_from_above_draws_traces() {
     let s = settings();

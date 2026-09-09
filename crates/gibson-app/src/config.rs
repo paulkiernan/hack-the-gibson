@@ -51,7 +51,7 @@ palette_cycle_seconds = 240
 
 # ---- effects ---------------------------------------------------------------
 # Bloom intensity (0 disables bloom .. 2).
-bloom = 0.45
+bloom = 0.35
 # Motion blur strength (0 disables .. 1).
 motion_blur = 0.5
 # Film grain amount (0 disables .. 0.2).

@@ -47,8 +47,8 @@ struct FrameUniform {
 @group(0) @binding(3) var bloom_tex: texture_2d<f32>;
 
 const SCAN_LINES: f32 = 480.0; // logical line count; pitch is resolution independent
-const GR_AMP: f32 = 0.12; // aperture-grille modulation depth at crt = 1
-const SCAN_AMP: f32 = 0.30; // scanline darkening depth at crt = 1
+const GR_AMP: f32 = 0.06; // aperture-grille modulation depth at crt = 1
+const SCAN_AMP: f32 = 0.14; // scanline darkening depth at crt = 1
 const CURVE: f32 = 0.085; // barrel curvature gain (max uv offset ~3% of the frame edge)
 const GLASS_FRAC: f32 = 0.985; // tube glass fills this fraction of the raster
 const CORNER_R: f32 = 0.10; // bezel corner radius (fraction of the screen height)
@@ -145,7 +145,7 @@ fn fs_main(in: FsIn) -> @location(0) vec4<f32> {
             textureSampleLevel(color_tex, color_smp, suv + vec2<f32>(2.2 / u.resolution.x, 0.0), 0.0).rgb
             + textureSampleLevel(color_tex, color_smp, suv - vec2<f32>(2.2 / u.resolution.x, 0.0), 0.0).rgb);
         let lumc = dot(hdr, vec3<f32>(0.2126, 0.7152, 0.0722));
-        hdr += bleed * (0.20 * crt) * smoothstep(0.9, 3.0, lumc);
+        hdr += bleed * (0.10 * crt) * smoothstep(0.9, 3.0, lumc);
     }
     hdr = hdr + textureSampleLevel(bloom_tex, color_smp, suv, 0.0).rgb * u.fx.x;
 
@@ -194,7 +194,7 @@ fn fs_main(in: FsIn) -> @location(0) vec4<f32> {
         disp *= mix(vec3<f32>(1.0), vec3<f32>(bezel * corner), crt);
 
         // Emissive-phosphor gamma/contrast lift, then clamp.
-        disp = pow(disp, vec3<f32>(1.0 / (1.0 + 0.16 * crt)));
+        disp = pow(disp, vec3<f32>(1.0 / (1.0 + 0.08 * crt)));
         disp = clamp(disp, vec3<f32>(0.0), vec3<f32>(1.0));
 
         // Back to linear when the target sRGB-encodes on store (fx.w = 0); when the target is

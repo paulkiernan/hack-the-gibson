@@ -510,6 +510,45 @@ impl Renderer {
                 log::debug!("gibson-render: surface busy/occluded; frame skipped");
                 return Ok(());
             }
+            other @ (wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost) => {
+                // Display-mode change or GPU reset: reconfigure the surface at the current size
+                // and try exactly once before surfacing an error. Without this a screensaver
+                // that stops its loop after repeated failures would black-screen on a mode
+                // change until its idle self-terminate kicks in.
+                log::info!("gibson-render: surface {other:?}; reconfiguring and retrying once");
+                if let (Some(surf), Some(format)) = (&self.surface, self.surface_format) {
+                    let config = wgpu::SurfaceConfiguration {
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        format,
+                        color_space: wgpu::SurfaceColorSpace::Auto,
+                        width: self.width,
+                        height: self.height,
+                        present_mode: wgpu::PresentMode::AutoVsync,
+                        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                        view_formats: vec![],
+                        desired_maximum_frame_latency: 2,
+                    };
+                    surf.configure(&self.device, &config);
+                    match surf.get_current_texture() {
+                        wgpu::CurrentSurfaceTexture::Success(t)
+                        | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+                        wgpu::CurrentSurfaceTexture::Timeout
+                        | wgpu::CurrentSurfaceTexture::Occluded => {
+                            log::debug!("gibson-render: surface busy after reconfigure; frame skipped");
+                            return Ok(());
+                        }
+                        other => {
+                            return Err(RenderError::Surface(format!(
+                                "surface acquire failed after reconfigure: {other:?}"
+                            )));
+                        }
+                    }
+                } else {
+                    return Err(RenderError::Surface(
+                        "surface lost but no surface to reconfigure".into(),
+                    ));
+                }
+            }
             other => {
                 return Err(RenderError::Surface(format!(
                     "surface acquire failed: {other:?}"

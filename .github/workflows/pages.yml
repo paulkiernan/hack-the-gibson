@@ -5,8 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# GitHub Pages is already configured for build_type=workflow on this repo, so
-# no repository-settings step is required here.
+# Least privilege for Pages deployment: read the repo, write the Pages
+# environment, mint the deployment OIDC token. GitHub Pages is already
+# configured for build_type=workflow on this repo, so no repository-settings
+# step is required here.
 permissions:
   contents: read
   pages: write
@@ -24,23 +26,24 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # Prebuilt binary from the official wasm-pack GitHub release; kept in
-      # sync with the `wasm` job in ci.yml.
+      # sync with the `wasm` job in ci.yml. Digest verified before use.
       - name: Install wasm-pack
         run: |
           curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz
+          echo "c09f971ecaed9a2efc80fdcea7a00ef6b53c7fadc8c57d1f61b53a6aa66b668a  wasm-pack.tar.gz" | sha256sum -c -
           tar -xzf wasm-pack.tar.gz
           echo "$PWD/wasm-pack-v0.15.0-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
       - name: Build web bundle
         run: wasm-pack build crates/gibson-web --target web --release --out-dir ../../web/pkg
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: web
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

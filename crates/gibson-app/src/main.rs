@@ -11,6 +11,7 @@
 mod cli;
 mod config;
 mod desktop;
+mod error_policy;
 mod saver_args;
 mod snapshot;
 

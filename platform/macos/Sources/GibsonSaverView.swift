@@ -39,7 +39,8 @@ final class GibsonSaverView: ScreenSaverView {
     private var frameFailures = 0
     private var framesRendered = 0
     private var lastStatusLog = 0
-    private var lastPixelSize = CGSize.zero
+    /// Logical (point) size and effective scale last handed to the renderer.
+    private var lastLogicalSize = CGSize.zero
     private var lastScale: CGFloat = 0
 
     // MARK: - Init / layer
@@ -139,19 +140,27 @@ final class GibsonSaverView: ScreenSaverView {
             Self.log.error("view too small to start: \(size, privacy: .public)")
             return
         }
-        let scale = effectiveScale
-        applyContentsScale(scale)
+        let backing = effectiveScale
+        applyContentsScale(backing)
 
         // wgpu needs the backing layer to exist before the surface is created.
         _ = layer
 
-        let pixelSize = convertToBacking(bounds).size
+        // Renderer convention (mirrors the desktop host): pass the LOGICAL
+        // size plus scale = backingScaleFactor x settings.render_scale; the
+        // renderer resolves width*scale x height*scale to physical pixels.
+        let logical = logicalSize
+        let scale = effectiveRenderScale
+        guard logical.width >= 8, logical.height >= 8 else {
+            Self.log.error("view too small to start")
+            return
+        }
         let json = SaverSettings.shared.engineSettingsJSON(preview: isPreview)
         let pointer = Unmanaged.passUnretained(self).toOpaque()
         let handle: UnsafeMutableRawPointer? = json.withCString { cString in
             gibson_create(pointer,
-                          UInt32(max(1, pixelSize.width.rounded())),
-                          UInt32(max(1, pixelSize.height.rounded())),
+                          UInt32(max(1, logical.width.rounded())),
+                          UInt32(max(1, logical.height.rounded())),
                           Float(scale), cString)
         }
         guard let handle else {
@@ -159,10 +168,11 @@ final class GibsonSaverView: ScreenSaverView {
             return
         }
         gibsonHandle = handle
-        lastPixelSize = pixelSize
+        lastLogicalSize = logical
         lastScale = scale
         let created = "gibson_create ok (handle \(UInt(bitPattern: handle)), "
-            + "\(Int(pixelSize.width))x\(Int(pixelSize.height)) px, scale \(Float(scale)))"
+            + "\(Int(logical.width))x\(Int(logical.height)) logical, "
+            + "effective scale \(Float(scale)))"
         Self.log.info("\(created, privacy: .public)")
         startRenderLoop()
     }
@@ -175,7 +185,7 @@ final class GibsonSaverView: ScreenSaverView {
             Self.log.info("gibson_destroy ok")
         }
         frameFailures = 0
-        lastPixelSize = .zero
+        lastLogicalSize = .zero
         lastScale = 0
     }
 
@@ -250,27 +260,47 @@ final class GibsonSaverView: ScreenSaverView {
         window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
     }
 
+    /// Logical (point) size of the view. The renderer wants logical points;
+    /// passing it the physical size as well as the scale would configure the
+    /// surface at `physical x backing` (4x the pixels on Retina).
+    private var logicalSize: CGSize {
+        let backing = max(effectiveScale, 1)
+        let physical = convertToBacking(bounds).size
+        return CGSize(width: (physical.width / backing).rounded(),
+                      height: (physical.height / backing).rounded())
+    }
+
+    /// Effective scale handed to the renderer: backing scale factor times the
+    /// `render_scale` preference (the renderer turns `logical x scale` into
+    /// physical pixels, so `render_scale` 1 renders 1:1 and lower values
+    /// downsample). Mirrors the desktop host's `scale = sf x render_scale`.
+    private var effectiveRenderScale: CGFloat {
+        effectiveScale * CGFloat(max(SaverSettings.shared.renderScale, 0.25))
+    }
+
     private func applyContentsScale(_ scale: CGFloat) {
         (layer as? CAMetalLayer)?.contentsScale = scale
     }
 
     /// Keep the wgpu surface in step with the view. Called from layout and
-    /// backing-property changes; only acts when the pixel size actually moved.
+    /// backing-property changes; only acts when the logical size or effective
+    /// scale actually moved.
     private func updateSurfaceSize() {
         guard let handle = gibsonHandle else { return }
-        let scale = effectiveScale
-        applyContentsScale(scale)
-        let pixelSize = convertToBacking(bounds).size
-        guard pixelSize.width >= 8, pixelSize.height >= 8 else { return }
-        guard pixelSize != lastPixelSize || abs(scale - lastScale) > 0.001 else { return }
+        let backing = effectiveScale
+        applyContentsScale(backing)
+        let logical = logicalSize
+        guard logical.width >= 8, logical.height >= 8 else { return }
+        let scale = effectiveRenderScale
+        guard logical != lastLogicalSize || abs(scale - lastScale) > 0.001 else { return }
         gibson_resize(handle,
-                      UInt32(max(1, pixelSize.width.rounded())),
-                      UInt32(max(1, pixelSize.height.rounded())),
+                      UInt32(max(1, logical.width.rounded())),
+                      UInt32(max(1, logical.height.rounded())),
                       Float(scale))
-        lastPixelSize = pixelSize
+        lastLogicalSize = logical
         lastScale = scale
-        let resized = "gibson_resize ok (\(Int(pixelSize.width))x\(Int(pixelSize.height)) px, "
-            + "scale \(Float(scale)))"
+        let resized = "gibson_resize ok (\(Int(logical.width))x\(Int(logical.height)) logical, "
+            + "effective scale \(Float(scale)))"
         Self.log.info("\(resized, privacy: .public)")
     }
 

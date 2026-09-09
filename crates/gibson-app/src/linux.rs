@@ -113,6 +113,13 @@ unsafe fn drive(
 
     let start = Instant::now();
     let mut frame_tick = Instant::now();
+    // If the window is destroyed between our adoption and XSelectInput above,
+    // no DestroyNotify is ever queued for us — and if the owner crashes, none
+    // arrives either. Re-query the window once a second as an event-stream-
+    // independent liveness check, and cap consecutive frame errors so a dead
+    // window cannot spin the loop at 60 Hz logging forever.
+    let mut liveness_check = Instant::now() + Duration::from_secs(1);
+    let mut error_policy = crate::error_policy::ConsecutiveErrorPolicy::new(10);
     loop {
         // Drain window events without blocking.
         let mut event: XEvent = std::mem::zeroed();
@@ -134,14 +141,35 @@ unsafe fn drive(
             }
         }
 
+        // Independent liveness check (see note above). X errors are swallowed
+        // by the handler installed in drive(), so a vanished window simply
+        // makes XGetWindowAttributes return 0.
+        let now = Instant::now();
+        if now >= liveness_check {
+            liveness_check = now + Duration::from_secs(1);
+            let mut live: XWindowAttributes = std::mem::zeroed();
+            if (xlib.XGetWindowAttributes)(display, xid, &mut live) == 0 {
+                log::info!("window {xid:#x} is gone; exiting");
+                return Ok(());
+            }
+        }
+
         // One frame, paced to ~60 Hz.
         let t = start.elapsed().as_secs_f64();
-        if let Err(e) = gibson.frame(t) {
-            log::error!("frame error: {e}");
+        match gibson.frame(t) {
+            Ok(()) => error_policy.record_success(),
+            Err(e) => {
+                log::error!("frame error: {e}");
+                if error_policy.record_error() {
+                    return Err(format!(
+                        "{} consecutive frame errors on window {xid:#x}; giving up",
+                        error_policy.consecutive()
+                    ));
+                }
+            }
         }
         (xlib.XFlush)(display);
         frame_tick += Duration::from_millis(16);
-        let now = Instant::now();
         if frame_tick > now {
             std::thread::sleep(frame_tick - now);
         } else {

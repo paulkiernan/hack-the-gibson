@@ -509,22 +509,34 @@ mod tests {
         );
     }
 
-    /// Palette modes: Normal/Siege are exact; Cycle alternates with a smoothstep crossfade.
+    /// Palette modes: Normal/Siege are exact; Cycle boots on NORMAL and crossfades only across
+    /// real boundaries (period, 2*period, ...), never during the first cycle.
     #[test]
     fn cycle_palette_crossfades() {
-        // Cycle 0 (t in 0..10) targets NORMAL; the palette crossfades from the previous cycle's
-        // SIEGE during the first 6 s, so t = 0 still reads fully SIEGE (seamless transition).
+        // Cycle 0 (t in 0..10) is NORMAL from the very start: no palette switch has happened,
+        // so the first 6 s must NOT fade up from SIEGE.
         let at_start = palette_state::palette(PaletteMode::Cycle, 0.0, 10.0);
-        assert_eq!(at_start, Palette::SIEGE);
-        // Mid-crossfade (t = 3): strictly between the two endpoints.
-        let mid = palette_state::palette(PaletteMode::Cycle, 3.0, 10.0);
-        assert!(mid != Palette::NORMAL && mid != Palette::SIEGE);
-        // Steady state at t = 8 (past the 6 s fade): NORMAL.
+        assert_eq!(at_start, Palette::NORMAL);
+        // Still inside the first cycle's would-be fade window: exact NORMAL, no transition.
+        assert_eq!(
+            palette_state::palette(PaletteMode::Cycle, 3.0, 10.0),
+            Palette::NORMAL
+        );
+        // Steady state at t = 8 (past the 6 s window of cycle 0): NORMAL.
         let steady = palette_state::palette(PaletteMode::Cycle, 8.0, 10.0);
         assert_eq!(steady, Palette::NORMAL);
-        // t = 12: three seconds into the Siege cycle (crossfading NORMAL -> SIEGE).
+        // t = 10 is the first real boundary: base SIEGE, but the fade has just begun (u = 0),
+        // so the palette is still exactly the outgoing NORMAL (seamless).
+        let boundary = palette_state::palette(PaletteMode::Cycle, 10.0, 10.0);
+        assert_eq!(boundary, Palette::NORMAL);
+        // t = 12: two seconds into the NORMAL -> SIEGE crossfade: strictly between.
         let sieging = palette_state::palette(PaletteMode::Cycle, 12.0, 10.0);
         assert!(sieging != Palette::NORMAL && sieging != Palette::SIEGE);
+        // t = 16: crossfade over, fully Siege.
+        assert_eq!(
+            palette_state::palette(PaletteMode::Cycle, 16.0, 10.0),
+            Palette::SIEGE
+        );
         // Endpoints resolve to the exact consts.
         assert_eq!(
             palette_state::palette(PaletteMode::Normal, 1.0, 10.0),
@@ -534,6 +546,46 @@ mod tests {
             palette_state::palette(PaletteMode::Siege, 1.0, 10.0),
             Palette::SIEGE
         );
+    }
+
+    /// Regression: `FlightPath::position` must not panic on the tiny-negative inputs the camera
+    /// feeds it around the wrap (`s - TANGENT_EPS` and `s - 2*TANGENT_EPS` go negative whenever
+    /// the wrapped `s` sits below 0.14 / 0.28). `f32::rem_euclid` maps a tiny negative such as
+    /// -1.49e-8 to exactly 39.0 (the modulus) instead of 38.99999998; the old floored index 39
+    /// indexed past the 39-element waypoint array.
+    #[test]
+    fn flight_path_position_handles_tiny_negative_s() {
+        let path = FlightPath::default_loop();
+        // Values that previously produced s = span after rem_euclid and panicked on pts[39].
+        for s in [
+            -1.49e-8f32,
+            -0.0f32,
+            -f32::MIN_POSITIVE,
+            -1.0e-7,
+            -1.0e-5,
+            -1.0e-3,
+            -0.13,
+            -0.13999999,
+        ] {
+            let _ = path.position(s); // must not panic
+        }
+        // Exact camera-style inputs: wrapped s slightly under TANGENT_EPS (0.14) and under
+        // 2 * TANGENT_EPS (0.28) make `s - eps` a tiny negative at the wrap.
+        for s in [1e-7f32, 0.14 - 1e-6, 0.28 - 1e-6, 0.14, 0.28] {
+            let _ = path.position(s - 0.14);
+            let _ = path.position(s - 0.28);
+        }
+        // Continuity with the wrapped equivalents: position(-1.49e-8) lands on the seam, within
+        // a whisker of both position(0) and the negative-s wrap position(39.0 - 1.49e-8).
+        let tiny = path.position(-1.49e-8f32);
+        let at_zero = path.position(0.0);
+        let wrapped = path.position(39.0 - 1.49e-8);
+        for k in 0..3 {
+            assert!((tiny[k] - at_zero[k]).abs() < 1e-3);
+            assert!((tiny[k] - wrapped[k]).abs() < 1e-3);
+        }
+        // And -0.0 behaves exactly like +0.0.
+        assert_eq!(path.position(-0.0f32), path.position(0.0f32));
     }
 
     /// Performance probe: peak `update()` cost at grid 60. Real numbers come from

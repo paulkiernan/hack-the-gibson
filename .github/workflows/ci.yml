@@ -4,9 +4,15 @@ on:
   push:
   pull_request:
 
+# Least privilege: jobs only check out code and upload artifacts
+# (upload-artifact uses the runtime token, not GITHUB_TOKEN), so read-only
+# contents suffices. Renderer tests that need a GPU adapter self-skip on
+# headless runners (they print a skip message), so no software-rasterizer
+# setup is added.
+permissions:
+  contents: read
+
 env:
-  # Renderer tests that need a GPU adapter self-skip on headless runners
-  # (they print a skip message), so no software-rasterizer setup is added.
   RUST_BACKTRACE: 1
 
 jobs:
@@ -19,21 +25,29 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Run tests
         run: cargo test --workspace --exclude gibson-web
+      # The saver Makefile parses `cargo rustc --print native-static-libs`
+      # output, so keep CARGO_TERM_COLOR unset at the workflow level; any step
+      # that parses cargo/rustc output must override it locally (the Makefile
+      # now does).
       - name: Build saver (arm64)
         run: make -C platform/macos ARCHS=arm64
       - name: Package saver
         run: |
           cd platform/macos/build
           zip -rq Gibson.saver.zip Gibson.saver
-      - uses: actions/upload-artifact@v4
+          shasum -a 256 Gibson.saver.zip > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Gibson.saver.zip
-          path: platform/macos/build/Gibson.saver.zip
+          path: |
+            platform/macos/build/Gibson.saver.zip
+            platform/macos/build/SHA256SUMS
           if-no-files-found: error
 
   windows:
@@ -44,9 +58,9 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # No gibson-render (no GPU adapter on hosted runners; its tests only
       # self-skip anyway) and no gibson-web (wasm-only crate) on native hosts.
       - name: Run tests
@@ -56,7 +70,7 @@ jobs:
       - name: Stage .scr
         shell: pwsh
         run: Copy-Item target/release/gibson-app.exe Gibson.scr
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Gibson.scr
           path: Gibson.scr
@@ -70,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # winit 0.30 x11/wayland backends and x11-dl: x11-dl dlopens libX11 at
       # runtime, but winit's wayland stack links libwayland-client and needs
       # libxkbcommon headers at build time.
@@ -78,14 +92,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # Same native test set as Windows: no gibson-render, no gibson-web.
       - name: Run tests
         run: cargo test -p gibson-scene -p gibson-atlas -p gibson-floor -p gibson-app
       - name: Build release
         run: cargo build --release -p gibson-app
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gibson-app
           path: target/release/gibson-app
@@ -97,22 +111,23 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # Prebuilt binary from the official wasm-pack GitHub release (matches the
       # v0.15.0 the project develops against) instead of `cargo install`, which
-      # would rebuild it from source on every run.
+      # would rebuild it from source on every run. Digest verified before use.
       - name: Install wasm-pack
         run: |
           curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz
+          echo "c09f971ecaed9a2efc80fdcea7a00ef6b53c7fadc8c57d1f61b53a6aa66b668a  wasm-pack.tar.gz" | sha256sum -c -
           tar -xzf wasm-pack.tar.gz
           echo "$PWD/wasm-pack-v0.15.0-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
       - name: Build web bundle
         run: wasm-pack build crates/gibson-web --target web --release --out-dir ../../web/pkg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: web
           path: web

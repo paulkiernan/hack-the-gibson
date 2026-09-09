@@ -20,7 +20,13 @@ pub(crate) fn palette(mode: PaletteMode, time: f64, cycle_seconds: f32) -> Palet
                 Palette::SIEGE
             };
             let tt = time.rem_euclid(period);
-            if tt < CROSSFADE {
+            // Only crossfade across a *real* boundary. The first cycle (time < period) has no
+            // previous cycle to transition from — it must boot directly on NORMAL rather than
+            // fading up from SIEGE over the first `CROSSFADE` seconds. Every later boundary
+            // (period, 2*period, ...) is a genuine switch and crossfades normally.
+            if time < period || tt >= CROSSFADE {
+                base
+            } else {
                 let u = ((tt / CROSSFADE) as f32).clamp(0.0, 1.0);
                 let s = u * u * (3.0 - 2.0 * u); // smoothstep
                 let prev = if base == Palette::NORMAL {
@@ -29,8 +35,6 @@ pub(crate) fn palette(mode: PaletteMode, time: f64, cycle_seconds: f32) -> Palet
                     Palette::NORMAL
                 };
                 prev.lerp(&base, s)
-            } else {
-                base
             }
         }
     }

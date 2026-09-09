@@ -92,13 +92,18 @@ impl FlightPath {
 
     /// Position along the closed loop at `s` segments: closed Catmull-Rom (tension 0.5),
     /// segment `i` from `P[i-1], P[i], P[i+1], P[i+2]` mod 39. Negative `s` wraps; the loop is
-    /// `C¹` across the seam because the neighbors wrap cyclically.
+    /// `C¹` across the seam because the neighbors wrap cyclically. Safe for every `f32` input,
+    /// including tiny negatives whose `rem_euclid` rounds up to exactly the span.
     pub fn position(&self, s: f32) -> [f32; 3] {
         let pts = &self.waypoints;
         let n = pts.len();
         let span = n as f32;
         let s = s.rem_euclid(span);
-        let i = s.floor() as usize; // 0..=n-1
+        // `f32::rem_euclid` returns exactly `span` (not 0) for tiny negative inputs such as
+        // -1.49e-8, whose magnitude vanishes when added to 39.0. Clamp the floored index to the
+        // last segment; `u` then lands on 1.0, the seam point that equals segment 0's start by
+        // the loop's C0 continuity (error ~1 ulp of s, far below any tolerance).
+        let i = (s.floor() as usize).min(n - 1);
         let u = s - i as f32;
 
         let p0 = Vec3::from_array(pts[(i + n - 1) % n]);

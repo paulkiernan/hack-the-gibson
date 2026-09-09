@@ -151,13 +151,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         panel = (in.face_layers[in.face] + band * BAND_STEP) % PANELS;
     }
 
-    // Read the block metadata from the band's base layer (variant A): the G/B/A planes are
-    // identical across variants, so this texel tells us the animation state at this pixel.
+    // Read the block metadata from the band's own layer (variant A; G/B/A planes are identical
+    // across variants). textureLoad for a 2D array takes (coords, array_index, level) -- the
+    // atlas has a single mip so the level must be 0, and the array index is the panel.
     let icoord = vec2<i32>(
         min(i32(floor(suv.x * 256.0)), ATLAS_W - 1),
         min(i32(floor(suv.y * 768.0)), ATLAS_H - 1),
     );
-    let base = textureLoad(atlas_tex, icoord, 0, i32(panel));
+    let base = textureLoad(atlas_tex, icoord, i32(panel), 0);
     let b255 = base.b * 255.0;
     let bid = u32(min(b255 + 0.5, 255.0));
     let ph = hash1(b255 + in.anim_phase);
@@ -194,9 +195,19 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         col += u.highlight.rgb * samp.a * 0.5 * in.highlight_t;
     }
 
-    // Blue haze toward the distance, then fog out (fog multiplies color AND alpha).
-    col = mix(col, u.haze.rgb * 0.6, smoothstep(60.0, 500.0, dist));
+    // Distance attenuation: in the deep 110-unit canyon a view ray crosses dozens of glass
+    // faces, and unattenuated premultiplied stacking integrates every one of them toward a
+    // flat pale wash. Fading each face's own emission with distance keeps near faces dominant
+    // and makes the far rows read as dim silhouettes (film look) instead of milk.
+    col = col * exp(-dist / 190.0);
+
+    // Blue haze toward the distance. Haze replaces the face's color as it recedes, and the fog
+    // term then scales both color and alpha -- but instead of letting fog take the far end to
+    // pure black (a black wedge up the corridor), the haze keeps a floor of atmosphere beyond
+    // FOG_END so the vanishing point reads as a glowing blue band like the film.
+    col = mix(col, u.haze.rgb * 0.9, smoothstep(120.0, 620.0, dist));
     let fog = 1.0 - smoothstep(u.time_fog_grid.y, u.time_fog_grid.z, dist);
     col = col * fog;
+    col = col + u.haze.rgb * 1.35 * (1.0 - fog) * (1.0 - fog);
     return vec4<f32>(col, u.tower_body.a * fog);
 }

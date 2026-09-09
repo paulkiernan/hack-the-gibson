@@ -85,7 +85,7 @@ impl Default for Settings {
             bank_smoothing: 0.55,
             palette: PaletteMode::Normal,
             palette_cycle_seconds: 240.0,
-            bloom: 0.45,
+            bloom: 0.35,
             motion_blur: 0.5,
             grain: 0.03,
             crt: 0.35,
@@ -112,7 +112,7 @@ impl Settings {
             bank_smoothing: clamp_or_default(self.bank_smoothing, 0.05, 2.0, 0.55),
             palette: self.palette,
             palette_cycle_seconds: clamp_or_default(self.palette_cycle_seconds, 10.0, 3600.0, 240.0),
-            bloom: clamp_or_default(self.bloom, 0.0, 2.0, 0.45),
+            bloom: clamp_or_default(self.bloom, 0.0, 2.0, 0.35),
             motion_blur: clamp_or_default(self.motion_blur, 0.0, 1.0, 0.5),
             grain: clamp_or_default(self.grain, 0.0, 0.2, 0.03),
             crt: clamp_or_default(self.crt, 0.0, 1.0, 0.35),
@@ -171,7 +171,10 @@ impl Palette {
     /// Deep-blue Gibson: body `#0E2A6A` at ~35 % opacity, cyan text, magenta highlights,
     /// violet PCB traces on black, near-white pulses, blue haze.
     pub const NORMAL: Palette = Palette {
-        tower_body: [0.055, 0.165, 0.415, 0.35],
+        // Body #0E2A6A: sRGB bytes (14,42,106) -> linear (0.004, 0.023, 0.144); previous values
+        // treated the sRGB bytes as linear and were ~1.7x too bright (milk). Dark glass so text
+        // blocks pop against near-black gaps.
+        tower_body: [0.01, 0.035, 0.16, 0.25],
         // Text #48E8FF converted sRGB->linear (~0.066, 0.81, 1.0); red kept a touch above the
         // film value so glyphs stay bright, green/blue carry the hue.
         tower_text: [0.10, 0.84, 0.92],
@@ -192,10 +195,14 @@ impl Palette {
 
     /// Siege palette: magenta-pink body, orange-red text, ice-blue floor, warm haze.
     pub const SIEGE: Palette = Palette {
-        tower_body: [0.42, 0.06, 0.25, 0.40],
-        // Text #FF6030 converted sRGB->linear is (1.0, 0.029, 0.015); storing the sRGB values
-        // in this linear buffer washed the orange toward cream. x1.25 lifts the hot cores.
-        tower_text: [1.0 * 1.25, 0.029 * 1.25, 0.0146 * 1.25],
+        // Body #6A1040: sRGB bytes (106,16,64) -> linear (0.144, 0.004, 0.052). Dark magenta
+        // glass (was ~2x too bright, washing everything pink) so the orange-red text reads
+        // against dark towers like the film's siege look.
+        tower_body: [0.15, 0.01, 0.06, 0.30],
+        // Text #FF6030 -> linear is (1.0, 0.117, 0.0146) (green 0.376 sRGB uses the power
+        // branch: (0.376+0.055)/1.055)^2.4 = 0.117, not 0.029). x1.25 lifts the hot cores; the
+        // full green keeps the glyphs orange rather than crimson.
+        tower_text: [1.0 * 1.25, 0.117 * 1.25, 0.0146 * 1.25],
         highlight: [1.0 * 2.5, 0.85 * 2.5, 0.4 * 2.5],
         // Trace #9FC0FF in linear is ~(0.34, 0.52, 1.0); x1.5 keeps them icy without clipping.
         floor_trace: [0.34 * 1.5, 0.52 * 1.5, 1.0 * 1.5],
@@ -500,8 +507,9 @@ mod tests {
             let expect = (n.floor_trace[i] + s.floor_trace[i]) * 0.5;
             assert!((m.floor_trace[i] - expect).abs() < 1e-6, "floor_trace[{i}]");
         }
-        // Alpha really is interpolated (NORMAL 0.35 → SIEGE 0.40).
-        assert!((m.tower_body[3] - 0.375).abs() < 1e-6);
+        // Alpha really is interpolated (midpoint of the two palettes' opacities).
+        let expect_a = (n.tower_body[3] + s.tower_body[3]) * 0.5;
+        assert!((m.tower_body[3] - expect_a).abs() < 1e-6);
     }
 
     #[test]
