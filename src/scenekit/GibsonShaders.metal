@@ -62,6 +62,59 @@ constant float kGradientWidth = 48.0;
 constant float kFogStart = 480.0;
 constant float kFogEnd = 820.0;
 constant float3 kFogColor = float3(0.0, 10.0 / 255.0, 15.0 / 255.0);
+constant float kPairSeconds = 24.0;
+
+float3 gibsonGradientLeft(int pair)
+{
+    if (pair == 0)
+        return float3(0.38, 0.28, 1.0); /* violet */
+    if (pair == 1)
+        return float3(0.12, 0.42, 1.0); /* blue */
+    if (pair == 2)
+        return float3(0.12, 0.88, 0.38); /* green */
+    return float3(1.0, 0.48, 0.10); /* orange */
+}
+
+float3 gibsonGradientRight(int pair)
+{
+    if (pair == 0)
+        return float3(0.12, 0.78, 1.0); /* cyan */
+    if (pair == 1)
+        return float3(0.15, 0.95, 0.42); /* green */
+    if (pair == 2)
+        return float3(1.0, 0.52, 0.12); /* orange */
+    return float3(0.55, 0.22, 1.0); /* violet */
+}
+
+struct GibsonGradEnds {
+    float3 left;
+    float3 right;
+};
+
+GibsonGradEnds gibsonGradientEnds(float time)
+{
+    const float t = time / kPairSeconds;
+    const float idx = floor(t);
+    const float frac = t - idx;
+    const int i0 = int(idx) % 4;
+    const int i1 = (i0 + 1) % 4;
+    const float blend = smoothstep(0.72, 1.0, frac);
+    GibsonGradEnds ends;
+    ends.left = mix(gibsonGradientLeft(i0), gibsonGradientLeft(i1), blend);
+    ends.right = mix(gibsonGradientRight(i0), gibsonGradientRight(i1), blend);
+    return ends;
+}
+
+float3 gibsonTintedGlow(float3 tex, float3 viewPosition, float3 left, float3 right)
+{
+    float glow = max(max(tex.r, tex.g), tex.b);
+    glow = pow(saturate(glow), 0.85);
+    const float g = saturate(viewPosition.x / kGradientWidth + 0.5);
+    float3 rgb = mix(left, right, g) * glow * 1.15;
+    rgb = min(rgb, float3(1.0));
+    const float fogFactor = saturate((kFogEnd - length(viewPosition)) / (kFogEnd - kFogStart));
+    return mix(kFogColor, rgb, fogFactor);
+}
 
 vertex GibsonFloorVertexOut gibsonFloorVertex(
     GibsonFloorVertexIn in [[stage_in]],
@@ -88,19 +141,23 @@ fragment float4 gibsonFloorFragment(
                                      filter::linear,
                                      mip_filter::linear);
     const float3 tex = diffuseTexture.sample(circuitSampler, in.texcoord).rgb;
-    float glow = max(max(tex.r, tex.g), tex.b);
-    glow = pow(saturate(glow), 0.85);
-
-    /* View-space X: purple/blue on the left of the frame, cyan on the right. */
-    const float t = saturate(in.viewPosition.x / kGradientWidth + 0.5);
     const float3 violet = float3(0.38, 0.28, 1.0);
     const float3 cyan = float3(0.12, 0.78, 1.0);
-    const float3 col = mix(violet, cyan, t);
-    float3 rgb = col * glow * 1.15;
-    rgb = min(rgb, float3(1.0));
-
-    const float fogFactor = saturate((kFogEnd - length(in.viewPosition)) / (kFogEnd - kFogStart));
-    rgb = mix(kFogColor, rgb, fogFactor);
-
+    const float3 rgb = gibsonTintedGlow(tex, in.viewPosition, violet, cyan);
     return float4(rgb, 1.0);
+}
+
+fragment float4 gibsonTowerFragment(
+    GibsonFloorVertexOut in [[stage_in]],
+    constant SCNSceneBuffer& scn_frame [[buffer(0)]],
+    texture2d<float, access::sample> diffuseTexture [[texture(0)]])
+{
+    constexpr sampler glyphSampler(coord::normalized,
+                                   address::clamp_to_edge,
+                                   filter::linear,
+                                   mip_filter::linear);
+    const float4 tex = diffuseTexture.sample(glyphSampler, in.texcoord);
+    const GibsonGradEnds ends = gibsonGradientEnds(scn_frame.time);
+    const float3 rgb = gibsonTintedGlow(tex.rgb, in.viewPosition, ends.left, ends.right);
+    return float4(rgb, tex.a);
 }

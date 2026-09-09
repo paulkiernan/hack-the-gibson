@@ -171,7 +171,10 @@ static void gibson_bind_material(SCNNode *node, SCNMaterial *mat)
         gibson_bind_material(child, mat);
 }
 
-static void gibson_apply_floor_program(SCNMaterial *mat, id<SCNProgramDelegate> delegate)
+static void gibson_apply_shader_program(SCNMaterial *mat,
+                                        NSString *fragment,
+                                        BOOL opaque,
+                                        id<SCNProgramDelegate> delegate)
 {
     id<MTLLibrary> library = gibson_shader_library();
     if (!library)
@@ -180,14 +183,24 @@ static void gibson_apply_floor_program(SCNMaterial *mat, id<SCNProgramDelegate> 
     SCNProgram *program = [SCNProgram program];
     program.library = library;
     program.vertexFunctionName = @"gibsonFloorVertex";
-    program.fragmentFunctionName = @"gibsonFloorFragment";
-    program.opaque = YES;
+    program.fragmentFunctionName = fragment;
+    program.opaque = opaque;
     program.delegate = delegate;
     mat.program = program;
     [mat setValue:mat.diffuse forKey:@"diffuseTexture"];
 }
 
-static id gibson_floor_texture_contents(NSImage *image)
+static void gibson_apply_floor_program(SCNMaterial *mat, id<SCNProgramDelegate> delegate)
+{
+    gibson_apply_shader_program(mat, @"gibsonFloorFragment", YES, delegate);
+}
+
+static void gibson_apply_tower_program(SCNMaterial *mat, id<SCNProgramDelegate> delegate)
+{
+    gibson_apply_shader_program(mat, @"gibsonTowerFragment", NO, delegate);
+}
+
+static id gibson_metal_texture_contents(NSImage *image)
 {
     if (!image)
         return nil;
@@ -242,8 +255,8 @@ static SCNMaterial *gibson_unlit_material(id contents, BOOL alpha)
     SCNNode *_worldRoot;
     SCNMaterial *_darkTowerMat;
     SCNMaterial *_lightTowerMat;
-    NSArray<NSImage *> *_darkFrames;
-    NSArray<NSImage *> *_lightFrames;
+    NSArray *_darkFrames;
+    NSArray *_lightFrames;
     NSInteger _towerFrame;
     NSTimeInterval _lastTowerSwap;
     NSTimeInterval _startTime;
@@ -379,7 +392,7 @@ static GibsonSCNScene *g_fullWorld;
     if (!geom)
         return;
     NSImage *tex = [self imageNamed:@"room.png"];
-    SCNMaterial *mat = gibson_unlit_material(gibson_floor_texture_contents(tex), NO);
+    SCNMaterial *mat = gibson_unlit_material(gibson_metal_texture_contents(tex), NO);
     gibson_apply_floor_program(mat, self);
     geom.materials = @[ mat ];
     SCNNode *room = [SCNNode nodeWithGeometry:geom];
@@ -390,12 +403,14 @@ static GibsonSCNScene *g_fullWorld;
 
 - (void)addTowers
 {
-    NSMutableArray<NSImage *> *dark = [NSMutableArray arrayWithCapacity:TOWER_TEXTURE_COUNT];
-    NSMutableArray<NSImage *> *light = [NSMutableArray arrayWithCapacity:TOWER_TEXTURE_COUNT];
+    NSMutableArray *dark = [NSMutableArray arrayWithCapacity:TOWER_TEXTURE_COUNT];
+    NSMutableArray *light = [NSMutableArray arrayWithCapacity:TOWER_TEXTURE_COUNT];
     for (int i = 1; i <= TOWER_TEXTURE_COUNT; ++i)
     {
-        [dark addObject:[self imageNamed:[NSString stringWithFormat:@"towers1-%d.png", i]]];
-        [light addObject:[self imageNamed:[NSString stringWithFormat:@"towers2-%d.png", i]]];
+        NSImage *d = [self imageNamed:[NSString stringWithFormat:@"towers1-%d.png", i]];
+        NSImage *l = [self imageNamed:[NSString stringWithFormat:@"towers2-%d.png", i]];
+        [dark addObject:gibson_metal_texture_contents(d) ?: d];
+        [light addObject:gibson_metal_texture_contents(l) ?: l];
     }
     _darkFrames = dark;
     _lightFrames = light;
@@ -406,6 +421,8 @@ static GibsonSCNScene *g_fullWorld;
 
     _darkTowerMat = gibson_unlit_material(dark[0], YES);
     _lightTowerMat = gibson_unlit_material(light[0], YES);
+    gibson_apply_tower_program(_darkTowerMat, self);
+    gibson_apply_tower_program(_lightTowerMat, self);
     SCNGeometry *darkGeom = [geom copy];
     darkGeom.materials = @[ _darkTowerMat ];
     SCNGeometry *lightGeom = [geom copy];
