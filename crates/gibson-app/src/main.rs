@@ -11,7 +11,6 @@
 mod cli;
 mod config;
 mod desktop;
-#[cfg(target_os = "linux")]
 mod error_policy;
 mod saver_args;
 mod snapshot;

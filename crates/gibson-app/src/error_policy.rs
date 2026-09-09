@@ -7,6 +7,11 @@
 //! This tiny policy counts consecutive failures and reports when the caller
 //! should give up; any successful frame resets the count so a transient error
 //! (surface busy, driver hiccup) never accumulates across minutes.
+//!
+//! Only the Linux host instantiates it today; the module stays compiled on
+//! every platform so its pure-logic tests keep running (macOS / Windows just
+//! do not construct the type).
+#![allow(dead_code)]
 
 /// A simple consecutive-failure tripwire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -4,7 +4,9 @@
 //! requested time (each step runs a full `snapshot()`), so the result is
 //! reproducible regardless of machine speed: the same `--seed`, `--size`,
 //! `--time`, and render settings always produce byte-identical pixels. The
-//! final step's image is encoded as 8-bit RGBA PNG, rows top-first.
+//! final step's image is encoded as 8-bit RGB PNG, rows top-first (the
+//! rendered image is opaque by construction, so the alpha plane is dropped
+//! before encoding rather than stored as a constant 255).
 
 use std::fs::File;
 use std::io::BufWriter;
@@ -56,16 +58,23 @@ pub fn run(cli: &Cli) -> Result<(), String> {
                 .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
     }
+    // The composite output is opaque (alpha 255 everywhere): store RGB and drop the wasted
+    // 8-bit alpha plane (~25% of the file on this content). Best compression with adaptive
+    // per-row filtering buys the rest; the deterministic pixel stream keeps two runs of the
+    // same arguments byte-identical.
+    let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|px| [px[0], px[1], px[2]]).collect();
     let file = File::create(&out_path)
         .map_err(|e| format!("cannot create {}: {e}", out_path.display()))?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), w, h);
-    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Best);
+    encoder.set_adaptive_filter(png::AdaptiveFilterType::Adaptive);
     let mut writer = encoder
         .write_header()
         .map_err(|e| format!("png header: {e}"))?;
     writer
-        .write_image_data(&rgba)
+        .write_image_data(&rgb)
         .map_err(|e| format!("png write: {e}"))?;
     println!("wrote {} ({}x{})", out_path.display(), w, h);
     Ok(())
