@@ -55,7 +55,7 @@ pub struct Settings {
     pub palette: PaletteMode,
     /// Seconds between palette switches when `palette == Cycle` (default 240.0).
     pub palette_cycle_seconds: f32,
-    /// Bloom intensity 0..=2 (default 0.45).
+    /// Bloom intensity 0..=2 (default 0.35).
     pub bloom: f32,
     /// Motion blur strength 0..=1 (default 0.5).
     pub motion_blur: f32,
@@ -168,7 +168,7 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// Deep-blue Gibson: body `#0E2A6A` at ~35 % opacity, cyan text, magenta highlights,
+    /// Deep-blue Gibson: body `#0E2A6A` at ~25 % opacity, cyan text, magenta highlights,
     /// violet PCB traces on black, near-white pulses, blue haze.
     pub const NORMAL: Palette = Palette {
         // Body #0E2A6A: sRGB bytes (14,42,106) -> linear (0.004, 0.023, 0.144); previous values

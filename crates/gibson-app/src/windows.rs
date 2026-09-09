@@ -110,10 +110,12 @@ fn run_preview(hwnd_value: isize, mut settings: Settings) -> Result<(), String> 
 
         if let Some(g) = gibson.as_mut() {
             let t = start.elapsed().as_secs_f64();
+            let (presented_before, _) = g.present_stats();
             if let Err(e) = g.frame(t) {
                 log::error!("preview frame error: {e}");
             }
-            pace(&mut tick);
+            let (presented_after, _) = g.present_stats();
+            pace_frame(presented_after > presented_before, &mut tick);
         } else {
             std::thread::sleep(Duration::from_millis(16));
         }
@@ -210,16 +212,20 @@ fn run_fullscreen(settings: Settings) -> Result<(), String> {
             break;
         }
         let t = start.elapsed().as_secs_f64();
+        let mut any_presented = false;
         for (hwnd, g) in windows.iter_mut() {
             if unsafe { IsWindow(*hwnd) } == 0 {
                 EXIT.store(true, Ordering::SeqCst);
                 break;
             }
+            let (presented_before, _) = g.present_stats();
             if let Err(e) = g.frame(t) {
                 log::error!("frame error: {e}");
             }
+            let (presented_after, _) = g.present_stats();
+            any_presented |= presented_after > presented_before;
         }
-        pace(&mut tick);
+        pace_frame(any_presented, &mut tick);
     }
 
     for (hwnd, _) in &windows {
@@ -364,6 +370,17 @@ fn pace(tick: &mut Instant) {
         std::thread::sleep(*tick - now);
     } else {
         *tick = now + Duration::from_millis(16);
+    }
+}
+
+/// Pace a frame: 60 Hz when it actually presented, a slow poll when the surface skipped it
+/// (window occluded/covered), so an invisible screensaver cannot spin a core.
+fn pace_frame(presented: bool, tick: &mut Instant) {
+    if presented {
+        pace(tick);
+    } else {
+        std::thread::sleep(Duration::from_millis(250));
+        *tick = Instant::now();
     }
 }
 

@@ -321,6 +321,31 @@ fn highlight_block_lights_only_its_own_panel_block() {
 }
 
 #[test]
+fn offscreen_renders_do_not_touch_present_counters() {
+    // present_stats() counts surface presents and occlusion/busy skips, both of which only
+    // happen in render() -- a real windowed surface. Offscreen render_to_rgba frames must
+    // leave the counters untouched. (The Occluded/Timeout skip path itself cannot be driven
+    // without a real surface, the same limitation as the Outdated/Lost recovery.)
+    let s = settings();
+    let mut r = match renderer_at(320, 240, 1.0, &s) {
+        Some(r) => r,
+        None => return,
+    };
+    assert_eq!(r.present_stats(), (0, 0));
+    let pose = camera([0.0, 400.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]);
+    let frame = empty_frame(1.0, pose, &s, &[], &[]);
+    for _ in 0..2 {
+        let (_, _, rgba) = r.render_to_rgba(&frame).expect("offscreen render");
+        assert_eq!(rgba.len(), 320 * 240 * 4);
+    }
+    assert_eq!(
+        r.present_stats(),
+        (0, 0),
+        "offscreen renders must neither present nor skip"
+    );
+}
+
+#[test]
 fn floor_from_above_draws_traces() {
     let s = settings();
     let f = floor();

@@ -122,6 +122,11 @@ pub struct Renderer {
     /// Previous-frame view-projection matrix for motion-blur reprojection.
     prev_view_proj: Mat4,
     has_prev: bool,
+
+    /// Frames actually presented to the surface.
+    presented: u64,
+    /// Frames dropped because the surface was busy/occluded (no present happened).
+    skipped: u64,
 }
 
 fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
@@ -441,6 +446,8 @@ impl Renderer {
             composite_b_bg: bloom0.2,
             prev_view_proj: Mat4::IDENTITY,
             has_prev: false,
+            presented: 0,
+            skipped: 0,
         })
     }
 
@@ -508,6 +515,7 @@ impl Renderer {
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 log::debug!("gibson-render: surface busy/occluded; frame skipped");
+                self.skipped += 1;
                 return Ok(());
             }
             other @ (wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost) => {
@@ -535,6 +543,7 @@ impl Renderer {
                         wgpu::CurrentSurfaceTexture::Timeout
                         | wgpu::CurrentSurfaceTexture::Occluded => {
                             log::debug!("gibson-render: surface busy after reconfigure; frame skipped");
+                            self.skipped += 1;
                             return Ok(());
                         }
                         other => {
@@ -563,7 +572,16 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.run_chain(frame, &view, format)?;
         self.queue.present(texture);
+        self.presented += 1;
         Ok(())
+    }
+
+    /// (presented, skipped) frame counters. `presented` counts frames actually presented to
+    /// the surface; `skipped` counts frames dropped because the surface reported `Timeout` or
+    /// `Occluded` (the host should back off when it sees the skip counter advance). Offscreen
+    /// `render_to_rgba` frames never touch either counter.
+    pub fn present_stats(&self) -> (u64, u64) {
+        (self.presented, self.skipped)
     }
 
     /// Render one frame offscreen and read back tightly packed sRGB8 rows, top row first.

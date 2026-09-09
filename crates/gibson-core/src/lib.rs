@@ -147,6 +147,14 @@ impl Gibson {
         &self.settings
     }
 
+    /// (presented, skipped) frame counters forwarded from the renderer: `presented` frames
+    /// were actually shown on the surface; `skipped` frames were dropped because the surface
+    /// was occluded or busy. A host can use this to report honest fps and to back off its
+    /// render loop while the skip counter is advancing (see the desktop host).
+    pub fn present_stats(&self) -> (u64, u64) {
+        self.renderer.present_stats()
+    }
+
     /// Replace the settings (clamped). Batch 2 may also want to push them into the scene.
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings.clamped();

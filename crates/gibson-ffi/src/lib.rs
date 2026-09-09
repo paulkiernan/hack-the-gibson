@@ -201,6 +201,15 @@ impl BusyGuard {
 /// success or the failure code. Membership, magic, and the busy handshake all
 /// happen inside the registry lock (the same lock `destroy` frees under), so a
 /// stale or concurrently-destroyed handle is never dereferenced.
+///
+/// The lock is released before the caller runs `Gibson` methods, which is
+/// sound because the slot is already marked busy under the lock: `destroy`
+/// (which requires `busy == false` to free, checked under the same lock)
+/// refuses to run concurrently with a body that acquired the slot, and any
+/// later `destroy` can only free the slot after the [`BusyGuard`] has cleared
+/// the flag. A `destroy` that wins the lock first removes the slot before any
+/// other caller can see it, so they fail the membership check without
+/// touching the pointer.
 fn acquire_slot(handle: *mut c_void, context: &str) -> Result<BusyGuard, i32> {
     if handle.is_null() {
         report_error(context, "null handle");
@@ -235,7 +244,7 @@ fn acquire_slot(handle: *mut c_void, context: &str) -> Result<BusyGuard, i32> {
 /// [`Settings`]. Invalid or missing JSON falls back to defaults, logged.
 fn parse_settings(settings_json: *const c_char) -> Settings {
     let json = if settings_json.is_null() {
-        report_warn("gibson_create", "settings_json is null; using default settings");
+        report_info("gibson_create", "settings_json is null; using default settings");
         None
     } else {
         // SAFETY: the Swift side promises a null-terminated C string (or null,

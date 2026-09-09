@@ -112,7 +112,6 @@ unsafe fn drive(
     (xlib.XFlush)(display);
 
     let start = Instant::now();
-    let mut frame_tick = Instant::now();
     // If the window is destroyed between our adoption and XSelectInput above,
     // no DestroyNotify is ever queued for us — and if the owner crashes, none
     // arrives either. Re-query the window once a second as an event-stream-
@@ -154,8 +153,11 @@ unsafe fn drive(
             }
         }
 
-        // One frame, paced to ~60 Hz.
+        // One frame, paced to ~60 Hz when presenting. If the surface reports the frame
+        // skipped (window covered / surface busy), back off to a slow poll instead so an
+        // invisible hack cannot spin.
         let t = start.elapsed().as_secs_f64();
+        let (presented_before, _) = gibson.present_stats();
         match gibson.frame(t) {
             Ok(()) => error_policy.record_success(),
             Err(e) => {
@@ -168,12 +170,13 @@ unsafe fn drive(
                 }
             }
         }
+        let (presented_after, _) = gibson.present_stats();
         (xlib.XFlush)(display);
-        frame_tick += Duration::from_millis(16);
-        if frame_tick > now {
-            std::thread::sleep(frame_tick - now);
+        let wait = if presented_after > presented_before {
+            Duration::from_millis(16)
         } else {
-            frame_tick = now + Duration::from_millis(16);
-        }
+            Duration::from_millis(250)
+        };
+        std::thread::sleep(wait);
     }
 }

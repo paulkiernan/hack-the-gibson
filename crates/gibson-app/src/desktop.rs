@@ -87,7 +87,9 @@ impl App {
         let Some(window) = self.window.as_ref() else { return };
         let Some(start) = self.start else { return };
         if window.inner_size().width == 0 || window.inner_size().height == 0 {
-            // Minimized / not yet laid out: skip the frame, keep polling.
+            // Minimized / not yet laid out: skip the frame and wait for the window to come
+            // back rather than spinning on redraw requests.
+            std::thread::sleep(std::time::Duration::from_millis(250));
             window.request_redraw();
             return;
         }
@@ -100,6 +102,7 @@ impl App {
         }
 
         let t = start.elapsed().as_secs_f64();
+        let (presented_before, _) = gibson.present_stats();
         match gibson.frame(t) {
             Ok(()) => {}
             Err(e) if self.frames == 0 => {
@@ -109,14 +112,33 @@ impl App {
             }
             Err(e) => log::error!("frame error: {e}"),
         }
-        self.frames += 1;
-        self.fps_frames += 1;
+        let (presented_after, skipped_after) = gibson.present_stats();
+        // Only frames that actually presented count toward fps; a frame the renderer skipped
+        // (window occluded / surface busy) is reported, not counted as a rendered frame.
+        let rendered = presented_after > presented_before;
+        if rendered {
+            self.frames += 1;
+            self.fps_frames += 1;
+        }
         let elapsed = self.fps_start.elapsed().as_secs_f64();
         if elapsed >= 5.0 {
             let fps = self.fps_frames as f64 / elapsed;
-            log::info!("fps: {fps:.1}");
+            log::info!("fps: {fps:.1} (skipped {skipped_after})");
             self.fps_start = Instant::now();
             self.fps_frames = 0;
+        }
+        // Back off while the window is occluded / the surface is busy: poll as fast as the
+        // compositor allows when frames present; when frames skip (window covered, another
+        // Space, minimized) sleep before the next attempt so an invisible window cannot peg a
+        // core. The sleep lives in the handler because winit redraw delivery is not reliably
+        // throttled by ControlFlow::WaitUntil alone on every platform.
+        if rendered {
+            event_loop.set_control_flow(ControlFlow::Poll);
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + std::time::Duration::from_millis(250),
+            ));
         }
         window.request_redraw();
     }

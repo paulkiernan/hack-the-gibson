@@ -109,7 +109,7 @@ final class SaverSettings {
             "fly_speed": flySpeed,
             "bank_strength": bankStrength,
             "palette": palette,
-            "bloom": bloomEnabled ? 0.45 : 0.0,
+            "bloom": bloomEnabled ? 0.35 : 0.0,
             "motion_blur": motionBlurEnabled ? 0.5 : 0.0,
             "grain": grainEnabled ? 0.03 : 0.0,
             "crt": min(max(crt, 0.0), 1.0),
