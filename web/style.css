@@ -51,3 +51,21 @@ body {
 #repo:hover {
   color: rgba(72, 232, 255, 0.9);
 }
+
+/* The Buy Me a Coffee widget injects a `position: static` anchor where its script sits, which
+   would fall below the full-viewport canvas. Pin the wrapper instead, opposite the repo link,
+   and scale it down so it reads as a footer control rather than an interstitial. */
+#support {
+  position: fixed;
+  left: 10px;
+  bottom: 8px;
+  z-index: 2;
+  transform: scale(0.62);
+  transform-origin: bottom left;
+  opacity: 0.82;
+  transition: opacity 120ms ease-in-out;
+}
+
+#support:hover {
+  opacity: 1;
+}

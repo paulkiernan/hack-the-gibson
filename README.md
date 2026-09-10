@@ -350,8 +350,11 @@ The workspace is a set of small crates with one contract crate,
   bar-chart glyphs, framed and inverse-video blocks — in IBM Plex Mono;
   panels 28–32 are hero directory lists (Michroma, the Eurostile-Extended-
   style face) whose entries double as individually highlightable blocks. The
-  floor (`gibson-floor`) generates a toroidal 96x96-cell PCB tile: random-
-  walk Manhattan traces with pads, vias, and chips that wrap seamlessly.
+  floor (`gibson-floor`) generates a toroidal 96x96-cell circuit board on
+  which the towers are the integrated circuits: each tower footprint is an IC
+  package with its own pin ring, and nets run tower to tower between those
+  pins, routed octilinearly so a 45-degree jog costs less than a right angle,
+  alongside bus bundles, power rails, ground pours, vias and silkscreen.
 - **The city.** A `grid x grid` array of towers standing in the lanes of the
   2015 world grid. Towers are instanced translucent glass boxes 12 units
   wide and 44–110 tall, drawn double-sided so back-face text bleeds through
@@ -372,6 +375,13 @@ The workspace is a set of small crates with one contract crate,
   as the last step. Distant towers fade through a blue haze to black, and
   the whole look is graded against the film reference in
   [docs/film-reference.md](docs/film-reference.md).
+
+## Support
+
+This is a spare-time project. If it made you smile and you feel like saying
+thanks, you can buy me a coffee:
+
+<a href="https://buymeacoffee.com/paulynomial"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" width="217" height="60"></a>
 
 ## Credits
 

@@ -12,6 +12,14 @@
   <canvas id="gibson"></canvas>
   <div id="status" role="status"></div>
   <a id="repo" href="https://github.com/paulkiernan/hack-the-gibson">paulkiernan/hack-the-gibson</a>
+  <!-- Buy Me a Coffee floating button. This is the official widget script; it only works on a
+       real page like this one, not in the README, because GitHub strips <script> from markdown.
+       The script injects a `position: static` anchor where it sits in the document, which would
+       land just below the 100vh canvas and be scrolled off the fold, so it is wrapped in a
+       fixed-position container. -->
+  <div id="support">
+    <script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="paulynomial" data-color="#BD5FFF" data-emoji="" data-font="Lato" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="#ffffff" data-coffee-color="#FFDD00"></script>
+  </div>
   <script type="module">
     import init from './pkg/gibson_web.js';
     init().catch((err) => {
