@@ -3,20 +3,37 @@ name: Release
 # The distribution channel: GitHub Releases whose assets are plain downloads
 # that need no account and do not expire (unlike workflow artifacts).
 #
-# Triggered by pushing a `v*` tag. `workflow_dispatch` runs the same pipeline
-# with `dry_run` defaulting to true, so every platform can be built and checked
-# without creating, filling or publishing a release.
+# Triggered by pushing a bare semver tag: `2.0.1`, never `v2.0.1`. The tag IS
+# the [workspace.package] version in Cargo.toml, character for character, so
+# there is no prefix to strip anywhere in this file.
+#
+# The `tags:` filter below is a glob, and a glob cannot express semver. It is
+# only a coarse prefilter, so that a tag which is plainly not a release (`main`,
+# `nightly`) never starts a run. Everything the prefilter lets through is judged
+# by the guard job, which applies the semver.org regex; a near miss such as
+# `2.0.01` or `2.0.1.1` therefore starts a run and fails within seconds, before
+# anything is built or created.
+#
+# `workflow_dispatch` runs the same pipeline with `dry_run` defaulting to true,
+# so every platform can be built and checked without creating, filling or
+# publishing a release.
 #
 # Shape: guard -> create-release (draft) -> parallel builds -> finalize
 # (SHA256SUMS + publish). A build that fails leaves a draft release behind and
-# never publishes a half-populated one.
+# never publishes a half-populated one. A tag with a `-prerelease` component is
+# created as a GitHub prerelease, so it never becomes the "Latest release".
 on:
   push:
-    tags: ["v*"]
+    # Quoted: `[` is a YAML special character, and GitHub requires a pattern
+    # starting with it to be quoted. GitHub's documented glob syntax is `*`
+    # (zero or more characters, excluding `/`), `**`, `?`, `+`, `[]` ranges and
+    # `!`; `.` is a literal and `*` matches it, so this is deliberately looser
+    # than semver. The guard job is what rejects the difference.
+    tags: ["[0-9]*.[0-9]*.[0-9]*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release. Must already exist and match the workspace version. Empty means v<workspace version>."
+        description: "Tag to release: bare semver, e.g. 2.1.0-rc.1. Must already exist and match the workspace version. Empty means the workspace version."
         required: false
         type: string
       dry_run:
@@ -43,17 +60,63 @@ env:
   GH_REPO: ${{ github.repository }}
 
 jobs:
-  # Cheap first gate. A release tagged v2.1.0 off a tree whose Cargo.toml still
+  # Cheap first gate. A release tagged 2.1.0 off a tree whose Cargo.toml still
   # says 2.0.0 is a defect worth failing in ten seconds rather than after six
-  # platform builds, so this runs before anything is created.
+  # platform builds, so this runs before anything is created. It is also the
+  # only place the tag is validated: the `tags:` glob above is a prefilter, not
+  # a semver check.
   guard:
     name: Version guard
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+    env:
+      # The official suggested regex from semver.org, "Is there a suggested
+      # regular expression (RegEx) to check a SemVer string?" -- the
+      # numbered-capture variant (cg1..cg3 = major/minor/patch, cg4 =
+      # prerelease, cg5 = build metadata), which semver.org marks as compatible
+      # with ECMAScript, PCRE, Python and Go. Copied from the spec verbatim, not
+      # hand-rolled; single-quoted YAML so the backslashes survive intact.
+      SEMVER_RE: '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'
+      # Python evaluates it (semver.org lists Python as a supported engine for
+      # this regex, and python3 is preinstalled on the runner image), so the
+      # pattern needs no porting to another dialect: `re.fullmatch` requires the
+      # whole string to match, and `re.ASCII` keeps `\d` to ASCII so a Unicode
+      # digit cannot pass as a version component. Both steps below run the
+      # pattern through this one definition, so the self-test can never drift
+      # from the check it is testing.
+      SEMVER_CHECK: 'import re, sys; raise SystemExit(0 if re.fullmatch(sys.argv[1], sys.argv[2], re.ASCII) else 1)'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # This regex is now the gate that decides whether a release can be
+      # published, and its failure mode is silent: a pattern mangled by an edit
+      # still accepts every valid tag and quietly lets bad ones through. So the
+      # pattern is run over the shapes the spec defines (must match) and over
+      # the near misses a looser pattern would wave through (must not match)
+      # before it is applied to a real tag.
+      - name: Self-test the semver gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          accept=(2.0.1 0.1.0 10.20.30 2.1.0-rc.1 2.1.0-alpha.0.1 2.1.0+build.5 2.1.0-rc.1+build.5)
+          reject=(v2.0.1 2.0 2 2.0.1.1 2.0.01 01.2.3 2.0.1- banana '')
+          failed=0
+          for tag in "${accept[@]}"; do
+            if ! python3 -c "$SEMVER_CHECK" "$SEMVER_RE" "$tag"; then
+              echo "::error::semver gate rejected the valid version '$tag'"
+              failed=1
+            fi
+          done
+          for tag in "${reject[@]}"; do
+            if python3 -c "$SEMVER_CHECK" "$SEMVER_RE" "$tag"; then
+              echo "::error::semver gate accepted the invalid version '$tag'"
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ] || exit 1
+          echo "semver gate: ${#accept[@]} valid accepted, ${#reject[@]} invalid rejected"
       - name: Read the workspace version
         id: version
         shell: bash
@@ -78,7 +141,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       # Inputs and ref names reach the shell through env, never by direct
       # interpolation, so a tag name can never be executed.
-      - name: Resolve the tag and assert it matches the version
+      - name: Resolve the tag and assert it is the workspace version
         id: resolve
         shell: bash
         env:
@@ -91,16 +154,39 @@ jobs:
           if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$INPUT_TAG" ]; then
             tag="$INPUT_TAG"
           elif [ "$EVENT" = "workflow_dispatch" ]; then
-            tag="v$VERSION"
+            tag="$VERSION"
           else
             tag="$REF_NAME"
           fi
-          echo "tag: $tag"
-          if [ "$tag" != "v$VERSION" ]; then
-            echo "::error::tag '$tag' does not match v$VERSION from [workspace.package] in Cargo.toml; bump the version or retag"
+
+          # Strict semver, which also encodes "no v prefix": `v2.0.1`, `2.0`,
+          # `2`, `2.0.1.1`, `2.0.01` and `01.2.3` all fail here.
+          if ! python3 -c "$SEMVER_CHECK" "$SEMVER_RE" "$tag"; then
+            echo "::error::tag '$tag' is not a semver version; expected major.minor.patch with optional -prerelease and +build metadata, e.g. '2.0.1' or '2.1.0-rc.1' (no 'v' prefix)"
             exit 1
           fi
+
+          # Plain string comparison: the tag IS the [workspace.package] version,
+          # so nothing is stripped from either side.
+          if [ "$tag" != "$VERSION" ]; then
+            echo "::error::tag '$tag' does not match version '$VERSION' from [workspace.package] in Cargo.toml; bump the version or retag"
+            exit 1
+          fi
+
+          # A tag is a prerelease when it has a `-prerelease` component. Build
+          # metadata alone (`2.1.0+build.5`) is a stable release, and metadata
+          # may itself contain a dash (`2.1.0+build-5`), so strip `+...` before
+          # looking for the separator.
+          base="${tag%%+*}"
+          case "$base" in
+            *-*) prerelease=true ;;
+            *)   prerelease=false ;;
+          esac
+
+          echo "tag: $tag"
+          echo "prerelease: $prerelease"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
   create-release:
     name: Create draft release
@@ -113,6 +199,10 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.guard.outputs.tag }}
+      # "true" or "false", straight from the guard's semver parse. Used as the
+      # value of gh's boolean `--prerelease` flag, so both cases take the same
+      # code path.
+      PRERELEASE: ${{ needs.guard.outputs.prerelease }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Re-running a tag whose draft already exists (a retry after one platform
@@ -158,10 +248,23 @@ jobs:
           The Windows and Linux hosts are compile-verified in CI on every release but have not been
           run on real hardware yet.
           EOF
+          # `--prerelease` takes the guard's answer directly, so a stable tag and
+          # a prerelease tag follow the same code path. GitHub derives the
+          # "Latest release" from the most recent published release that is
+          # neither a draft nor a prerelease, and `--latest` is left unset here
+          # (gh only sends make_latest when it is passed), so a prerelease can
+          # never take over "Latest" and a stable tag is marked latest exactly
+          # as it was before. The title says which one this is, because the
+          # prerelease banner is otherwise the only cue on the release page.
+          title="Hack the Gibson ${TAG}"
+          if [ "$PRERELEASE" = "true" ]; then
+            title="$title (prerelease)"
+          fi
           gh release create "$TAG" \
             --draft \
             --verify-tag \
-            --title "Hack the Gibson ${TAG}" \
+            --prerelease="$PRERELEASE" \
+            --title "$title" \
             --notes-file "$RUNNER_TEMP/release-body.md" \
             --generate-notes
 

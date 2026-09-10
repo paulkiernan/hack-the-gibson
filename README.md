@@ -45,10 +45,12 @@ python3 -m http.server 8080
 
 Prebuilt downloads for every host are attached to the
 [Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest).
-A release is published whenever a tag matching `v*` is pushed, and the tag
-always matches the workspace version in `Cargo.toml` (the release workflow
-refuses to build if it does not). If you want the tip of `main` instead, every
-host builds from source — see [Building](#building).
+A release is published whenever a semver tag is pushed — the version alone,
+with no `v` prefix — and the tag must equal the workspace version in
+`Cargo.toml` character for character (the release workflow refuses to build
+if it does not). A prerelease tag such as `2.1.0-rc.1` publishes as a GitHub
+prerelease rather than as the latest stable release. If you want the tip of
+`main` instead, every host builds from source — see [Building](#building).
 
 Each release carries the same six assets:
 
@@ -310,8 +312,8 @@ links it into a Swift dylib with `swiftc`, `lipo`s the architectures
 together, wraps the result in a `.saver` bundle, and ad-hoc codesigns it
 (recipe proven by the PerfectoWeb/Gibson saver). CI tests and builds every
 target — macOS (tests + saver), Windows (tests + `.scr`), Linux (tests +
-xscreensaver host), and wasm (web bundle) — and pushing a `v*` tag publishes
-all of those builds as a
+xscreensaver host), and wasm (web bundle) — and pushing a semver tag (no `v`
+prefix) publishes all of those builds as a
 [release](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
 with checksums.
 
