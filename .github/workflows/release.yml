@@ -254,17 +254,17 @@ jobs:
           # neither a draft nor a prerelease, and `--latest` is left unset here
           # (gh only sends make_latest when it is passed), so a prerelease can
           # never take over "Latest" and a stable tag is marked latest exactly
-          # as it was before. The title says which one this is, because the
-          # prerelease banner is otherwise the only cue on the release page.
-          title="Hack the Gibson ${TAG}"
-          if [ "$PRERELEASE" = "true" ]; then
-            title="$title (prerelease)"
-          fi
+          # as it was before.
+          #
+          # The title is the version and nothing else. The repository name is
+          # already above the release on the page, and GitHub renders its own
+          # "Pre-release" badge, so a project name or a "(prerelease)" suffix
+          # would only repeat what the page already says.
           gh release create "$TAG" \
             --draft \
             --verify-tag \
             --prerelease="$PRERELEASE" \
-            --title "$title" \
+            --title "$TAG" \
             --notes-file "$RUNNER_TEMP/release-body.md" \
             --generate-notes
 
