@@ -454,6 +454,50 @@ fn present_stats_inner(handle: *mut c_void, presented: *mut u64, skipped: *mut u
     FRAME_OK
 }
 
+/// Read why frames were dropped: `*timeout` counts skips from a starved
+/// drawable pool, `*occluded` counts skips where the surface's layer/window was
+/// not displayable. Returns 0 on success; 6 = null output pointer.
+///
+/// # Safety
+/// `handle` must come from [`gibson_create`] and not yet be destroyed (or be
+/// null); the output pointers must be valid writable `u64*`. Main thread, not
+/// reentrantly.
+#[no_mangle]
+pub extern "C" fn gibson_skip_breakdown(
+    handle: *mut c_void,
+    timeout: *mut u64,
+    occluded: *mut u64,
+) -> i32 {
+    install_os_logger();
+    match catch_unwind(AssertUnwindSafe(|| skip_breakdown_inner(handle, timeout, occluded))) {
+        Ok(code) => code,
+        Err(payload) => {
+            report_panic("gibson_skip_breakdown", &*payload);
+            FRAME_ERR_PANIC
+        }
+    }
+}
+
+fn skip_breakdown_inner(handle: *mut c_void, timeout: *mut u64, occluded: *mut u64) -> i32 {
+    if timeout.is_null() || occluded.is_null() {
+        report_error("gibson_skip_breakdown", "null output pointer");
+        return FRAME_ERR_NULL_OUT;
+    }
+    let guard = match acquire_slot(handle, "gibson_skip_breakdown") {
+        Ok(guard) => guard,
+        Err(code) => return code,
+    };
+    // SAFETY: exclusive access is guaranteed by the busy handshake.
+    let gibson = unsafe { &(*guard.slot_ptr()).gibson };
+    let (timeouts, occlusions) = gibson.skip_breakdown();
+    // SAFETY: the caller promises valid writable pointers.
+    unsafe {
+        *timeout = timeouts;
+        *occluded = occlusions;
+    }
+    FRAME_OK
+}
+
 /// Destroy the instance and free the handle. Null, unknown, or already
 /// destroyed handle: logged no-op. The caller must not use the handle
 /// afterwards (Swift nils its pointer).

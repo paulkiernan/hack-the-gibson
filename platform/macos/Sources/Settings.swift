@@ -29,6 +29,9 @@ final class SaverSettings {
         static let grain = "grain"
         static let crt = "crt"
         static let renderScale = "render_scale"
+        /// Diagnostic only: fill the backing layer opaque red so it is obvious
+        /// whether the window this view lives in is what the display shows.
+        static let debugLayer = "debug_layer"
     }
 
     private let store: UserDefaults
@@ -44,6 +47,7 @@ final class SaverSettings {
             Key.grain: true,
             Key.crt: 0.35,
             Key.renderScale: 1.0,
+            Key.debugLayer: false,
         ])
     }
 
@@ -92,6 +96,12 @@ final class SaverSettings {
     var renderScale: Double {
         get { store.double(forKey: Key.renderScale) }
         set { store.set(newValue, forKey: Key.renderScale) }
+    }
+
+    /// Diagnostic switch (see `Key.debugLayer`); never enabled by default.
+    var debugLayerFill: Bool {
+        get { store.bool(forKey: Key.debugLayer) }
+        set { store.set(newValue, forKey: Key.debugLayer) }
     }
 
     /// Flush to disk. `ScreenSaverDefaults` caches per process, so the options

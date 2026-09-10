@@ -17,6 +17,8 @@ final class ConfigureSheetController: NSViewController {
                                       target: nil, action: nil)
     private let crtSlider = NSSlider(value: 0.35, minValue: 0, maxValue: 1,
                                      target: nil, action: nil)
+    private let renderScaleSlider = NSSlider(value: 1.0, minValue: 0.5, maxValue: 1.0,
+                                             target: nil, action: nil)
     private let palettePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let bloomCheck = NSButton(checkboxWithTitle: "Bloom glow",
                                       target: nil, action: nil)
@@ -34,6 +36,7 @@ final class ConfigureSheetController: NSViewController {
         let bankLabel = label("Banking")
         let paletteLabel = label("Palette")
         let crtLabel = label("CRT overlay")
+        let renderScaleLabel = label("Render scale")
 
         speedSlider.isContinuous = true
         speedSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.controlWidth).isActive = true
@@ -41,6 +44,8 @@ final class ConfigureSheetController: NSViewController {
         bankSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.controlWidth).isActive = true
         crtSlider.isContinuous = true
         crtSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.controlWidth).isActive = true
+        renderScaleSlider.isContinuous = true
+        renderScaleSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.controlWidth).isActive = true
 
         palettePopup.addItems(withTitles: ["Normal", "Siege", "Cycle"])
         palettePopup.selectItem(at: 0)
@@ -51,12 +56,13 @@ final class ConfigureSheetController: NSViewController {
         ok.keyEquivalent = "\r"
         let buttonsRow = buttonRowContainer(cancel, ok)
 
-        // Grid rows: four label+control rows (speed, bank, CRT, palette), three
-        // full-width checkbox rows, one right-aligned button row.
+        // Grid rows: five label+control rows (speed, bank, CRT, render scale,
+        // palette), three full-width checkbox rows, one right-aligned button row.
         let grid = NSGridView(views: [
             [speedLabel, speedSlider],
             [bankLabel, bankSlider],
             [crtLabel, crtSlider],
+            [renderScaleLabel, renderScaleSlider],
             [paletteLabel, palettePopup],
             [bloomCheck, NSView()],
             [motionCheck, NSView()],
@@ -69,7 +75,7 @@ final class ConfigureSheetController: NSViewController {
         grid.rowAlignment = .firstBaseline
 
         // Merge the checkbox and button rows so they span the full width.
-        for row in 4...7 {
+        for row in 5...8 {
             grid.mergeCells(inHorizontalRange: NSRange(location: 0, length: 2),
                             verticalRange: NSRange(location: row, length: 1))
         }
@@ -115,6 +121,8 @@ final class ConfigureSheetController: NSViewController {
                                      bankSlider.maxValue)
         crtSlider.doubleValue = min(max(preferences.crt, crtSlider.minValue),
                                     crtSlider.maxValue)
+        renderScaleSlider.doubleValue = min(max(preferences.renderScale, renderScaleSlider.minValue),
+                                            renderScaleSlider.maxValue)
         let palette = preferences.palette
         palettePopup.selectItem(at: palette == "siege" ? 1 : (palette == "cycle" ? 2 : 0))
         bloomCheck.state = preferences.bloomEnabled ? .on : .off
@@ -126,6 +134,7 @@ final class ConfigureSheetController: NSViewController {
         preferences.flySpeed = speedSlider.doubleValue
         preferences.bankStrength = bankSlider.doubleValue
         preferences.crt = crtSlider.doubleValue
+        preferences.renderScale = renderScaleSlider.doubleValue
         preferences.palette = ["normal", "siege", "cycle"][max(0, palettePopup.indexOfSelectedItem)]
         preferences.bloomEnabled = bloomCheck.state == .on
         preferences.motionBlurEnabled = motionCheck.state == .on

@@ -127,6 +127,10 @@ pub struct Renderer {
     presented: u64,
     /// Frames dropped because the surface was busy/occluded (no present happened).
     skipped: u64,
+    /// Sub-counters of `skipped`, by reason: a `Timeout` means the drawable pool
+    /// was starved; an `Occluded` means the layer/window is not displayable.
+    skipped_timeout: u64,
+    skipped_occluded: u64,
 }
 
 fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
@@ -448,6 +452,8 @@ impl Renderer {
             has_prev: false,
             presented: 0,
             skipped: 0,
+            skipped_timeout: 0,
+            skipped_occluded: 0,
         })
     }
 
@@ -513,9 +519,16 @@ impl Renderer {
         let texture = match surf.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                log::debug!("gibson-render: surface busy/occluded; frame skipped");
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                log::debug!("gibson-render: surface timeout; frame skipped");
                 self.skipped += 1;
+                self.skipped_timeout += 1;
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                log::debug!("gibson-render: surface occluded; frame skipped");
+                self.skipped += 1;
+                self.skipped_occluded += 1;
                 return Ok(());
             }
             other @ (wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost) => {
@@ -540,10 +553,16 @@ impl Renderer {
                     match surf.get_current_texture() {
                         wgpu::CurrentSurfaceTexture::Success(t)
                         | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-                        wgpu::CurrentSurfaceTexture::Timeout
-                        | wgpu::CurrentSurfaceTexture::Occluded => {
-                            log::debug!("gibson-render: surface busy after reconfigure; frame skipped");
+                        wgpu::CurrentSurfaceTexture::Timeout => {
+                            log::debug!("gibson-render: surface timeout after reconfigure; frame skipped");
                             self.skipped += 1;
+                            self.skipped_timeout += 1;
+                            return Ok(());
+                        }
+                        wgpu::CurrentSurfaceTexture::Occluded => {
+                            log::debug!("gibson-render: surface occluded after reconfigure; frame skipped");
+                            self.skipped += 1;
+                            self.skipped_occluded += 1;
                             return Ok(());
                         }
                         other => {
@@ -582,6 +601,13 @@ impl Renderer {
     /// `render_to_rgba` frames never touch either counter.
     pub fn present_stats(&self) -> (u64, u64) {
         (self.presented, self.skipped)
+    }
+
+    /// `(skipped_timeout, skipped_occluded)`: why frames were dropped. A
+    /// `Timeout` points at a starved drawable pool (the GPU/host is behind);
+    /// an `Occluded` points at a layer or window the display cannot show.
+    pub fn skip_breakdown(&self) -> (u64, u64) {
+        (self.skipped_timeout, self.skipped_occluded)
     }
 
     /// Render one frame offscreen and read back tightly packed sRGB8 rows, top row first.

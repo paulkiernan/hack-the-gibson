@@ -56,6 +56,11 @@ int32_t gibson_frame(void *handle, double time_seconds);
 // not a rendered frame). Returns 0 on success; 6 = null output pointer.
 int32_t gibson_present_stats(void *handle, uint64_t *presented, uint64_t *skipped);
 
+// Read why frames were dropped: *timeout counts skips from a starved drawable
+// pool, *occluded counts skips where the surface's layer/window was not
+// displayable. Returns 0 on success; 6 = null output pointer.
+int32_t gibson_skip_breakdown(void *handle, uint64_t *timeout, uint64_t *occluded);
+
 // Destroy the instance and free the handle. Null, unknown, or already
 // destroyed handle: logged no-op. Do not use the handle afterwards.
 void gibson_destroy(void *handle);

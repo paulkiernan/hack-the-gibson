@@ -155,6 +155,13 @@ impl Gibson {
         self.renderer.present_stats()
     }
 
+    /// `(skipped_timeout, skipped_occluded)`: why frames the host asked for were
+    /// not presented. `Timeout` = the drawable pool was starved (GPU/host
+    /// behind); `Occluded` = the surface's layer/window was not displayable.
+    pub fn skip_breakdown(&self) -> (u64, u64) {
+        self.renderer.skip_breakdown()
+    }
+
     /// Replace the settings (clamped). Batch 2 may also want to push them into the scene.
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings.clamped();
