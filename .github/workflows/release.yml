@@ -34,6 +34,13 @@ permissions:
 
 env:
   RUST_BACKTRACE: 1
+  # gh resolves its target repository from a local git remote when it is not
+  # told otherwise, so any job without an actions/checkout step dies with
+  # "failed to run git: fatal: not a git repository". GH_REPO (documented in
+  # `gh help environment` as the repo "for commands that otherwise operate on a
+  # local repository") pins the target for every gh invocation in this file and
+  # removes the implicit-git-context dependency entirely.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   # Cheap first gate. A release tagged v2.1.0 off a tree whose Cargo.toml still
@@ -432,39 +439,49 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.guard.outputs.tag }}
+      # Single source of truth for the five contract asset names, used by both
+      # the download and the checksum step below.
+      RELEASE_ASSETS: Gibson.saver.zip Gibson.scr hack-the-gibson-macos-universal.tar.gz hack-the-gibson-linux-x86_64.tar.gz hack-the-gibson-web.zip
     steps:
-      - name: Download every asset from the draft release
+      # Download and validation are one step so that a failure always names the
+      # asset it is complaining about and shows what the release actually
+      # holds, rather than surfacing a bare gh error. gh exits non-zero when no
+      # pattern matches at all, but exits 0 and silently skips an individual
+      # non-matching pattern, so the explicit presence check is what really
+      # guarantees all five arrived.
+      - name: Download and verify every asset
         shell: bash
         run: |
           set -euo pipefail
+          read -r -a assets <<< "$RELEASE_ASSETS"
           mkdir -p dist
-          # An explicit pattern per asset: gh exits non-zero ("no assets match
-          # the file pattern") if one is missing, and the loop below covers the
-          # case where a pattern is silently skipped instead.
-          gh release download "$TAG" --dir dist --clobber \
-            -p Gibson.saver.zip \
-            -p Gibson.scr \
-            -p hack-the-gibson-macos-universal.tar.gz \
-            -p hack-the-gibson-linux-x86_64.tar.gz \
-            -p hack-the-gibson-web.zip
+          patterns=()
+          for asset in "${assets[@]}"; do
+            patterns+=(-p "$asset")
+          done
+          if ! gh release download "$TAG" --dir dist --clobber "${patterns[@]}"; then
+            echo "::error::gh release download failed for $TAG"
+            echo "assets present on the release:"
+            gh release view "$TAG" --json assets --jq '.assets[].name' || true
+            exit 1
+          fi
+          missing=()
+          for asset in "${assets[@]}"; do
+            [ -f "dist/$asset" ] || missing+=("$asset")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::release $TAG is missing ${#missing[@]} of ${#assets[@]} assets: ${missing[*]}"
+            echo "assets present on the release:"
+            gh release view "$TAG" --json assets --jq '.assets[].name' || true
+            exit 1
+          fi
+          ls -l dist
       - name: Generate SHA256SUMS
         shell: bash
         working-directory: dist
         run: |
           set -euo pipefail
-          assets=(
-            Gibson.saver.zip
-            Gibson.scr
-            hack-the-gibson-macos-universal.tar.gz
-            hack-the-gibson-linux-x86_64.tar.gz
-            hack-the-gibson-web.zip
-          )
-          for asset in "${assets[@]}"; do
-            if [ ! -f "$asset" ]; then
-              echo "::error::asset $asset is missing from the release"
-              exit 1
-            fi
-          done
+          read -r -a assets <<< "$RELEASE_ASSETS"
           # Bare filenames, so `shasum -a 256 -c SHA256SUMS` verifies in
           # whatever directory the user downloaded into. sha256sum and
           # shasum emit the same format.
