@@ -34,6 +34,8 @@ jobs:
       # output, so keep CARGO_TERM_COLOR unset at the workflow level; any step
       # that parses cargo/rustc output must override it locally (the Makefile
       # now does).
+      # Release assets are universal (arm64 x86_64); this job stays single-arch
+      # because it only has to prove the bundle builds. See release.yml.
       - name: Build saver (arm64)
         run: make -C platform/macos ARCHS=arm64
       - name: Package saver
@@ -88,6 +90,7 @@ jobs:
       # winit 0.30 x11/wayland backends and x11-dl: x11-dl dlopens libX11 at
       # runtime, but winit's wayland stack links libwayland-client and needs
       # libxkbcommon headers at build time.
+      # Must stay in sync with the same step in release.yml.
       - name: Install X11 / Wayland dev packages
         run: |
           sudo apt-get update
@@ -119,6 +122,7 @@ jobs:
       # Prebuilt binary from the official wasm-pack GitHub release (matches the
       # v0.15.0 the project develops against) instead of `cargo install`, which
       # would rebuild it from source on every run. Digest verified before use.
+      # Must stay in sync with the same step in pages.yml and release.yml.
       - name: Install wasm-pack
         run: |
           curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz

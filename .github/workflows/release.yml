@@ -1,0 +1,485 @@
+name: Release
+
+# The distribution channel: GitHub Releases whose assets are plain downloads
+# that need no account and do not expire (unlike workflow artifacts).
+#
+# Triggered by pushing a `v*` tag. `workflow_dispatch` runs the same pipeline
+# with `dry_run` defaulting to true, so every platform can be built and checked
+# without creating, filling or publishing a release.
+#
+# Shape: guard -> create-release (draft) -> parallel builds -> finalize
+# (SHA256SUMS + publish). A build that fails leaves a draft release behind and
+# never publishes a half-populated one.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release. Must already exist and match the workspace version. Empty means v<workspace version>."
+        required: false
+        type: string
+      dry_run:
+        description: "Build every asset but create no release and upload nothing."
+        required: false
+        type: boolean
+        default: true
+
+# Least privilege: read by default. Every job that reads or writes a release
+# re-declares `contents: write` (a draft release is only visible to tokens with
+# write access, so even the download in `finalize` needs it). GH_TOKEN is the
+# automatic token capped by this block; no third-party release action is used.
+permissions:
+  contents: read
+
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Cheap first gate. A release tagged v2.1.0 off a tree whose Cargo.toml still
+  # says 2.0.0 is a defect worth failing in ten seconds rather than after six
+  # platform builds, so this runs before anything is created.
+  guard:
+    name: Version guard
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Read the workspace version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(awk '
+            /^\[workspace\.package\]/ { section = 1; next }
+            /^\[/                     { section = 0 }
+            section && /^version[[:space:]]*=/ {
+              line = $0
+              sub(/^[^"]*"/, "", line)
+              sub(/".*$/, "", line)
+              print line
+              exit
+            }
+          ' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "::error::no version found in [workspace.package] in Cargo.toml"
+            exit 1
+          fi
+          echo "workspace version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Inputs and ref names reach the shell through env, never by direct
+      # interpolation, so a tag name can never be executed.
+      - name: Resolve the tag and assert it matches the version
+        id: resolve
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          elif [ "$EVENT" = "workflow_dispatch" ]; then
+            tag="v$VERSION"
+          else
+            tag="$REF_NAME"
+          fi
+          echo "tag: $tag"
+          if [ "$tag" != "v$VERSION" ]; then
+            echo "::error::tag '$tag' does not match v$VERSION from [workspace.package] in Cargo.toml; bump the version or retag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  create-release:
+    name: Create draft release
+    needs: guard
+    # On a tag push always run; on a manual dispatch only when dry_run is off.
+    if: github.event_name == 'push' || inputs.dry_run == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.guard.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Re-running a tag whose draft already exists (a retry after one platform
+      # flaked) reuses it instead of failing, and `--clobber` on every upload
+      # replaces the assets. Release immutability is not enabled on this repo,
+      # so a re-run after publish also works.
+      - name: Create the draft release
+        shell: bash
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists; reusing it"
+            exit 0
+          fi
+          # Multiline body, so a notes file rather than shell quoting. The body
+          # is prepended by the API to the notes `--generate-notes` produces.
+          cat > "$RUNNER_TEMP/release-body.md" <<'EOF'
+          A Rust + wgpu reimplementation of the Gibson tower-city flythrough from *Hackers* (1995).
+          Every asset below is a direct download: no GitHub account, no expiry.
+
+          | Asset | Platform | How to use it |
+          | --- | --- | --- |
+          | `Gibson.saver.zip` | macOS 14+ | Screen saver, universal (Apple silicon + Intel). Unzip it, then double-click `Gibson.saver` to install it. |
+          | `hack-the-gibson-macos-universal.tar.gz` | macOS 14+ | Windowed desktop app, universal. Untar it and run `hack-the-gibson-macos-universal/gibson-app`. |
+          | `Gibson.scr` | Windows | Screen saver. Save it, then right-click it and choose Install. |
+          | `hack-the-gibson-linux-x86_64.tar.gz` | Linux x86_64 | Desktop app, plus the xscreensaver hack with its `gibson.xml` descriptor. See `README.txt` inside. |
+          | `hack-the-gibson-web.zip` | any modern browser | Static WebGPU/WebGL2 build for self-hosting. Serve the directory over HTTP. |
+
+          Check the download before running anything:
+
+          ```sh
+          shasum -a 256 -c SHA256SUMS    # macOS
+          sha256sum -c SHA256SUMS        # Linux
+          ```
+
+          **macOS:** the screen saver and the desktop app are ad-hoc signed but not notarized, so
+          Gatekeeper refuses the first launch. Right-click the app (or the `Gibson.saver` bundle) and
+          choose Open, or approve it once under System Settings > Privacy & Security. To install the
+          screen saver by hand, copy it to `~/Library/Screen Savers/`.
+
+          The Windows and Linux hosts are compile-verified in CI on every release but have not been
+          run on real hardware yet.
+          EOF
+          gh release create "$TAG" \
+            --draft \
+            --verify-tag \
+            --title "Hack the Gibson ${TAG}" \
+            --notes-file "$RUNNER_TEMP/release-body.md" \
+            --generate-notes
+
+  # macOS carries two assets because they share the x86_64 dependency builds:
+  # the saver Makefile links a Rust staticlib per arch, and the app is built for
+  # both triples in the same job.
+  build-macos:
+    name: macOS (universal)
+    needs: [guard, create-release]
+    if: always() && !cancelled() && needs.guard.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.guard.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - name: Add the Intel target
+        run: rustup target add x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-macos
+      # ARCHS defaults to `arm64 x86_64`; stated explicitly because a release
+      # asset that is silently single-arch is exactly what ships broken.
+      # The Makefile parses `cargo rustc --print native-static-libs` output and
+      # sets CARGO_TERM_COLOR=never itself, so do not force a colour here.
+      - name: Build the screen saver
+        run: make -C platform/macos ARCHS="arm64 x86_64"
+      - name: Assert the saver is universal
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="platform/macos/build/Gibson.saver/Contents/MacOS/Gibson"
+          archs="$(lipo -archs "$binary")"
+          echo "saver architectures: $archs"
+          for arch in arm64 x86_64; do
+            case " $archs " in
+              *" $arch "*) ;;
+              *) echo "::error::$binary has no $arch slice (found: $archs)"; exit 1 ;;
+            esac
+          done
+      - name: Package the screen saver
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          (cd platform/macos/build && zip -rq "$GITHUB_WORKSPACE/dist/Gibson.saver.zip" Gibson.saver)
+          unzip -l dist/Gibson.saver.zip
+      - name: Build the desktop app for both architectures
+        run: |
+          cargo build --release -p gibson-app --target aarch64-apple-darwin
+          cargo build --release -p gibson-app --target x86_64-apple-darwin
+      - name: Package the desktop app
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=dist/hack-the-gibson-macos-universal
+          mkdir -p "$stage"
+          lipo -create \
+            target/aarch64-apple-darwin/release/gibson-app \
+            target/x86_64-apple-darwin/release/gibson-app \
+            -output "$stage/gibson-app"
+          archs="$(lipo -archs "$stage/gibson-app")"
+          echo "app architectures: $archs"
+          for arch in arm64 x86_64; do
+            case " $archs " in
+              *" $arch "*) ;;
+              *) echo "::error::gibson-app has no $arch slice (found: $archs)"; exit 1 ;;
+            esac
+          done
+          cp GPL.txt "$stage/GPL.txt"
+          cat > "$stage/README.txt" <<'EOF'
+          Hack the Gibson - macOS desktop app
+          ===================================
+
+          Run ./gibson-app from this directory, or drag it to Applications.
+
+          gibson-app --help          list every option
+          gibson-app --fullscreen    fullscreen flythrough; Esc or Q quits
+
+          This binary is universal (Apple silicon + Intel). It is ad-hoc signed
+          but not notarized, so Gatekeeper refuses the first launch: right-click
+          gibson-app and choose Open, or approve it once under
+          System Settings > Privacy & Security.
+
+          Settings live in
+            ~/Library/Application Support/hack-the-gibson/gibson.toml
+          which is written with defaults and comments on first run.
+
+          Licensed GPL-3.0-or-later; see GPL.txt.
+          EOF
+          tar -czf dist/hack-the-gibson-macos-universal.tar.gz -C dist hack-the-gibson-macos-universal
+          tar -tzf dist/hack-the-gibson-macos-universal.tar.gz
+      - name: Upload to the draft release
+        if: needs.create-release.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            dist/Gibson.saver.zip \
+            dist/hack-the-gibson-macos-universal.tar.gz \
+            --clobber
+
+  build-windows:
+    name: Windows (.scr)
+    needs: [guard, create-release]
+    if: always() && !cancelled() && needs.guard.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.guard.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-windows
+      # Build only: the test matrix lives in ci.yml and runs on every push, and
+      # a tag is cut from a commit that already went through it.
+      - name: Build the desktop app
+        run: cargo build --release -p gibson-app
+      # An .scr is what the user installs, so it is uploaded as-is rather than
+      # wrapped in an archive.
+      - name: Stage Gibson.scr
+        shell: pwsh
+        run: Copy-Item target/release/gibson-app.exe Gibson.scr
+      - name: Upload to the draft release
+        if: needs.create-release.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" Gibson.scr --clobber
+
+  build-linux:
+    name: Linux x86_64 (xscreensaver)
+    needs: [guard, create-release]
+    if: always() && !cancelled() && needs.guard.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.guard.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Kept in sync with the `linux` job in ci.yml: winit's wayland stack needs
+      # libwayland-client and libxkbcommon headers at build time, and x11-dl
+      # dlopens libX11 at runtime.
+      - name: Install X11 / Wayland dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-linux
+      # Build only; see the note in build-windows.
+      - name: Build the desktop app
+        run: cargo build --release -p gibson-app
+      # gibson.xml is the xscreensaver descriptor and is useless without the
+      # binary, so the two ship together.
+      - name: Package the desktop app
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=dist/hack-the-gibson-linux-x86_64
+          mkdir -p "$stage"
+          install -m 755 target/release/gibson-app "$stage/gibson-app"
+          cp platform/linux/gibson.xml "$stage/gibson.xml"
+          cat > "$stage/README.txt" <<'EOF'
+          Hack the Gibson - Linux x86_64 desktop app and xscreensaver hack
+          =================================================================
+
+          Binary:      gibson-app (x86_64, dynamically linked against libc)
+          Descriptor:  gibson.xml (options for the xscreensaver settings dialog)
+
+          Windowed app:
+
+            ./gibson-app                 start windowed; Esc or Q quits
+            ./gibson-app --fullscreen    fullscreen flythrough
+            ./gibson-app --help          list every option
+
+          xscreensaver hack:
+
+            install -m 755 gibson-app ~/.local/bin/gibson
+            sudo cp gibson.xml /usr/share/xscreensaver/config/gibson.xml
+            # then add to ~/.xscreensaver:  programs: gibson -root
+
+          Settings are read from ~/.config/hack-the-gibson/gibson.toml, which is
+          written with defaults and comments on first run. Anything on the
+          command line overrides the file.
+
+          Built against wgpu's Vulkan backend; it renders into the X11 window
+          xscreensaver hands it. On Wayland, use the fullscreen mode under
+          swayidle instead, since xscreensaver is X11-only.
+
+          The X11 path is compile-verified in CI but has never been exercised on
+          a real X server. Licensed GPL-3.0-or-later.
+          EOF
+          tar -czf dist/hack-the-gibson-linux-x86_64.tar.gz -C dist hack-the-gibson-linux-x86_64
+          tar -tzf dist/hack-the-gibson-linux-x86_64.tar.gz
+      - name: Upload to the draft release
+        if: needs.create-release.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" dist/hack-the-gibson-linux-x86_64.tar.gz --clobber
+
+  build-web:
+    name: Web bundle
+    needs: [guard, create-release]
+    if: always() && !cancelled() && needs.guard.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.guard.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-web
+      # Kept in sync with the `wasm` job in ci.yml and the deploy job in
+      # pages.yml (which already carry the same note): the prebuilt binary from
+      # the official wasm-pack release is used instead of `cargo install`, which
+      # would rebuild it from source on every run. Digest verified before use.
+      - name: Install wasm-pack
+        run: |
+          curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz
+          echo "c09f971ecaed9a2efc80fdcea7a00ef6b53c7fadc8c57d1f61b53a6aa66b668a  wasm-pack.tar.gz" | sha256sum -c -
+          tar -xzf wasm-pack.tar.gz
+          echo "$PWD/wasm-pack-v0.15.0-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+      - name: Build web bundle
+        run: wasm-pack build crates/gibson-web --target web --release --out-dir ../../web/pkg
+      - name: Package the web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          zip -rq dist/hack-the-gibson-web.zip web
+          unzip -l dist/hack-the-gibson-web.zip
+      - name: Upload to the draft release
+        if: needs.create-release.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" dist/hack-the-gibson-web.zip --clobber
+
+  # Checksums are computed over the assets as they were uploaded, so the file
+  # describes exactly the bytes GitHub serves. Publishing is the last step, after
+  # every asset and SHA256SUMS are in place.
+  finalize:
+    name: Checksums and publish
+    needs: [guard, create-release, build-macos, build-windows, build-linux, build-web]
+    if: always() && !cancelled() && needs.create-release.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-web.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.guard.outputs.tag }}
+    steps:
+      - name: Download every asset from the draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # An explicit pattern per asset: gh exits non-zero ("no assets match
+          # the file pattern") if one is missing, and the loop below covers the
+          # case where a pattern is silently skipped instead.
+          gh release download "$TAG" --dir dist --clobber \
+            -p Gibson.saver.zip \
+            -p Gibson.scr \
+            -p hack-the-gibson-macos-universal.tar.gz \
+            -p hack-the-gibson-linux-x86_64.tar.gz \
+            -p hack-the-gibson-web.zip
+      - name: Generate SHA256SUMS
+        shell: bash
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          assets=(
+            Gibson.saver.zip
+            Gibson.scr
+            hack-the-gibson-macos-universal.tar.gz
+            hack-the-gibson-linux-x86_64.tar.gz
+            hack-the-gibson-web.zip
+          )
+          for asset in "${assets[@]}"; do
+            if [ ! -f "$asset" ]; then
+              echo "::error::asset $asset is missing from the release"
+              exit 1
+            fi
+          done
+          # Bare filenames, so `shasum -a 256 -c SHA256SUMS` verifies in
+          # whatever directory the user downloaded into. sha256sum and
+          # shasum emit the same format.
+          sha256sum "${assets[@]}" > SHA256SUMS
+      - name: Print the digests into the job log
+        working-directory: dist
+        run: cat SHA256SUMS
+      - name: Upload SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" dist/SHA256SUMS --clobber
+      - name: Publish the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false
+          echo "published https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

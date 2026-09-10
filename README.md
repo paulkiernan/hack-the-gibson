@@ -24,6 +24,17 @@ the WebGPU path, and any WebGL2-capable browser without WebGPU still gets
 the scene through the fallback. The URL accepts query parameters — see the
 Web entry under [Settings](#settings).
 
+To host it yourself instead, `hack-the-gibson-web.zip` on the
+[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
+is a static build of the same page. Unzip it and serve it over HTTP — the
+wasm module needs server headers, so a `file://` URL will not work:
+
+```bash
+unzip hack-the-gibson-web.zip
+cd web
+python3 -m http.server 8080
+```
+
 ## Screenshots
 
 ![Overhead sweep: tower tops read teal-green, distant towers dissolve into blue haze](docs/screenshots/overhead.png)
@@ -32,24 +43,63 @@ Web entry under [Settings](#settings).
 
 ## Install
 
-### macOS screen saver
+Prebuilt downloads for every host are attached to the
+[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest).
+A release is published whenever a tag matching `v*` is pushed; the workspace
+version is 2.0.0, so that tag is `v2.0.0`. If nothing is published yet, or
+you want the tip of `main`, every host still builds from source — see
+[Building](#building).
 
-Requires macOS 14 or later. Either build it yourself (see [Building](#building)),
-or download `Gibson.saver.zip` from the CI artifacts (or a release) on the
-[GitHub Actions page](https://github.com/paulkiernan/hack-the-gibson/actions).
+Each release carries the same six assets:
+
+| Asset | What it is |
+| --- | --- |
+| `Gibson.saver.zip` | macOS screen saver bundle, universal (arm64 + x86_64) |
+| `Gibson.scr` | Windows screen saver |
+| `hack-the-gibson-macos-universal.tar.gz` | macOS windowed desktop app |
+| `hack-the-gibson-linux-x86_64.tar.gz` | Linux desktop app / xscreensaver hack, including `gibson.xml` |
+| `hack-the-gibson-web.zip` | the static web build, for self-hosting |
+| `SHA256SUMS` | checksums covering every asset above |
+
+Download the asset you want and `SHA256SUMS` into the same directory, then
+verify the download before installing:
 
 ```bash
-# If you downloaded the artifact, verify it first:
-#   unzip the artifact into a folder, then, from inside that folder:
+# macOS
 shasum -a 256 -c SHA256SUMS
 
-# Install (or install a build with):
-make install-saver
+# Linux
+sha256sum -c SHA256SUMS
 ```
 
-`make install-saver` copies `Gibson.saver` to `~/Library/Screen Savers/` and
-restarts the screen-saver process; then pick **The Gibson** in System
-Settings > Wallpaper > Screen Saver.
+The names in `SHA256SUMS` are the bare asset names above, so both commands
+work from your download directory with no paths to adjust. `SHA256SUMS`
+covers every asset in the release, so if you fetched only some of them, add
+`--ignore-missing` (`shasum -a 256 -c --ignore-missing SHA256SUMS`) and the
+assets you did not download are skipped instead of reported as `FAILED open
+or read`.
+
+### macOS screen saver
+
+Requires macOS 14 or later. Either build it yourself (see
+[Building](#building)), or download `Gibson.saver.zip` (universal — Apple
+silicon and Intel) and `SHA256SUMS` from the
+[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest).
+
+```bash
+# From your download directory, with the zip and SHA256SUMS both present:
+shasum -a 256 -c --ignore-missing SHA256SUMS
+
+# Unzip it and put the bundle where macOS looks for screen savers:
+unzip Gibson.saver.zip
+cp -R Gibson.saver "$HOME/Library/Screen Savers/"
+
+# Make the running screen-saver process pick up the new bundle:
+killall legacyScreenSaver 2>/dev/null || true
+```
+
+Then pick **The Gibson** in System Settings > Wallpaper > Screen Saver.
+`make install-saver` does those same steps for a build from source.
 
 **Gatekeeper note:** the bundle is ad-hoc signed and not notarized. If macOS
 refuses the downloaded copy the first time, right-click `Gibson.saver` and
@@ -57,42 +107,92 @@ choose Open, or approve it in System Settings > Privacy & Security, and copy
 it into `~/Library/Screen Savers/` yourself. The `SHA256SUMS` file shipped
 next to the zip lets you verify the download before you do any of that.
 
-Remove it with `make uninstall-saver`.
+Remove it with `make uninstall-saver`, or by deleting the bundle from
+`~/Library/Screen Savers/`.
 
 ### Windows `.scr`
 
-Build on Windows (or take the `Gibson.scr` artifact from CI), rename the
-binary, and install it the classic way:
+Download `Gibson.scr` from the
+[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
+and install it the classic way: right-click the file and choose **Install**,
+or copy it to `C:\Windows\System32\Gibson.scr` and pick "The Gibson" in
+Settings > Personalization > Lock screen > Screen saver settings. Windows
+marks downloaded programs as internet-sourced, so if SmartScreen warns,
+choose **More info** > **Run anyway**, or clear the mark first with
+`Unblock-File .\Gibson.scr`.
+
+The same binary understands `/s` (full screen), `/p <hwnd>` (preview tile),
+and `/c` (opens the settings file). Full steps are in
+[platform/windows/README.md](platform/windows/README.md). To build it
+yourself instead:
 
 ```text
+cargo build --release -p gibson-app
 copy target\release\gibson-app.exe Gibson.scr
 ```
 
-Right-click `Gibson.scr` and choose **Install**, or copy it to
-`C:\Windows\System32\Gibson.scr` and pick "The Gibson" in Settings >
-Personalization > Lock screen > Screen saver settings. The same binary
-understands `/s` (full screen), `/p <hwnd>` (preview tile), and `/c` (opens
-the settings file). Full steps are in
-[platform/windows/README.md](platform/windows/README.md).
+**Unverified on real hardware:** the Windows host is compile-verified in CI
+only — nobody has run it yet — so the release download is the convenient
+path, not a proven one. Treat it accordingly.
 
 ### Linux xscreensaver
 
-`gibson-app` doubles as an xscreensaver "external window" hack. Install the
-built binary somewhere on `PATH`, copy
-[`platform/linux/gibson.xml`](platform/linux/gibson.xml) to
-`/usr/share/xscreensaver/config/gibson.xml`, and add this line to
-`~/.xscreensaver` (create it with `xscreensaver-demo` first if needed):
+`gibson-app` doubles as an xscreensaver "external window" hack. The
+`hack-the-gibson-linux-x86_64.tar.gz` asset on the
+[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
+contains the binary and the `gibson.xml` descriptor, and unpacks into a
+`hack-the-gibson-linux-x86_64/` directory:
+
+```bash
+# From your download directory, with the tarball and SHA256SUMS present:
+sha256sum -c --ignore-missing SHA256SUMS
+
+tar -xzf hack-the-gibson-linux-x86_64.tar.gz
+cd hack-the-gibson-linux-x86_64
+
+# Put the binary on PATH as `gibson`, and the descriptor where
+# xscreensaver looks for it:
+install -Dm755 gibson-app "$HOME/.local/bin/gibson"
+sudo install -Dm644 gibson.xml /usr/share/xscreensaver/config/gibson.xml
+```
+
+Then add this line to `~/.xscreensaver` (create it with `xscreensaver-demo`
+first if needed):
 
 ```text
 programs: gibson -root
 ```
 
-Full steps and the settings-dialog note are in
-[platform/linux/README.md](platform/linux/README.md). xscreensaver is X11
-only: on a Wayland session use `swayidle` plus `gibson-app --fullscreen`
-instead (see the same file for the exact command).
+That line resolves `gibson` on `PATH`; give the absolute path instead if
+`~/.local/bin` is not on yours.
+
+`cargo build --release -p gibson-app` produces the same binary from source,
+and [`platform/linux/gibson.xml`](platform/linux/gibson.xml) is the
+descriptor the tarball ships. Full steps and the settings-dialog note are in
+[platform/linux/README.md](platform/linux/README.md).
+
+**Unverified on real hardware:** the xscreensaver host is compile-verified in
+CI only — nobody has run it yet. It is also X11 only: on a Wayland session
+use `swayidle` plus `gibson-app --fullscreen` instead (see the same file for
+the exact command).
 
 ### Desktop app (any platform)
+
+Grab `hack-the-gibson-macos-universal.tar.gz` (universal) or
+`hack-the-gibson-linux-x86_64.tar.gz` (glibc x86_64) from the
+[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest);
+each unpacks into a directory holding `gibson-app`:
+
+```bash
+tar -xzf hack-the-gibson-macos-universal.tar.gz
+./hack-the-gibson-macos-universal/gibson-app
+
+# If macOS refuses to run the downloaded binary (quarantine), either
+# right-click it and choose Open, or clear the flag:
+xattr -d com.apple.quarantine hack-the-gibson-macos-universal/gibson-app
+```
+
+Or run it from source:
 
 ```bash
 cargo run --release -p gibson-app
@@ -208,9 +308,12 @@ Notable: the macOS saver builds with **Command Line Tools only — no Xcode
 required**. It is a Makefile that compiles the Rust core to a staticlib,
 links it into a Swift dylib with `swiftc`, `lipo`s the architectures
 together, wraps the result in a `.saver` bundle, and ad-hoc codesigns it
-(recipe proven by the PerfectoWeb/Gibson saver). CI builds every target —
-macOS (tests + saver), Windows (tests + `.scr`), Linux (tests + xscreensaver
-host), and wasm (web bundle) — and uploads the artifacts.
+(recipe proven by the PerfectoWeb/Gibson saver). CI tests and builds every
+target — macOS (tests + saver), Windows (tests + `.scr`), Linux (tests +
+xscreensaver host), and wasm (web bundle) — and pushing a `v*` tag publishes
+all of those builds as a
+[release](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
+with checksums.
 
 ## How it works
 
