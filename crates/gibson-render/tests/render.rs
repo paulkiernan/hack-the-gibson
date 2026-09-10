@@ -1272,6 +1272,220 @@ fn floor_reserved_feature_kinds_draw_nothing() {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Floor trace continuity. The trace SDF is built from half-segments that leave a cell centre, so
+// a 45-degree run passes through the point where four cells meet. Only the two cells along the
+// run own the collinear halves there; the two cells flanking the corner own nothing, and the
+// conductor must still be continuous and even through them.
+//
+// Measuring that needs a perpendicular cut through the run, so the diagonal camera is rolled 45
+// degrees: the world diagonal lands exactly on the image's horizontal axis and an image column is
+// a clean cross-section of the conductor.
+// ---------------------------------------------------------------------------------------------
+
+/// Cell the continuity runs start at, their length in cells, and the world coordinate of their
+/// midpoint (`2.5 * RUN_CELL + 1.25 * (RUN_LEN - 1)` = 60: cell `k` is centred on world `2.5k`
+/// and the run ends one half-cell past each end cell's centre), which is where each camera sits.
+const RUN_CELL: usize = 20;
+const RUN_LEN: usize = 9;
+const RUN_MID: f32 = 2.5 * (RUN_CELL as f32) + 1.25 * ((RUN_LEN - 1) as f32);
+
+/// Camera height for the continuity frames: 800x800 then spans 79.8 world units, i.e. 10.0 px per
+/// unit at the image centre, and the 22.5-unit run crosses nine cells with every gauge several
+/// pixels wide.
+const RUN_CAM_H: f32 = 72.0;
+/// Columns to drop at each end of a measured run before judging it, so the round end cap is not
+/// mistaken for a pinch: 30 px is three cells at the test's scale.
+const RUN_END_SKIP: usize = 30;
+
+/// One straight 45-degree run: cell `(k, k)` for `k` in `RUN_CELL..RUN_CELL + RUN_LEN` carries
+/// both diagonal bits, so the chain is a single conductor through every cell centre on the world
+/// diagonal, ending in a round cap at each end cell's outer corner.
+fn diagonal_run_floor(gauge: u8) -> FloorMap {
+    synthetic_floor(move |x, z| {
+        if x == z && (RUN_CELL..RUN_CELL + RUN_LEN).contains(&x) {
+            [16 | 128, 0, gauge, 255]
+        } else {
+            [0, 0, 0, 0]
+        }
+    })
+}
+
+/// The orthogonal control: the same run laid along +x through cell row 24, whose centre line is
+/// the camera axis. Bits 1|2 make it one collinear conductor of the same length.
+fn orthogonal_run_floor(gauge: u8) -> FloorMap {
+    synthetic_floor(move |x, z| {
+        if z == 24 && (RUN_CELL..RUN_CELL + RUN_LEN).contains(&x) {
+            [1 | 2, 0, gauge, 255]
+        } else {
+            [0, 0, 0, 0]
+        }
+    })
+}
+
+/// Top-down with the screen axes rolled 45 degrees, so the world diagonal is the image's
+/// horizontal axis (`right` = the diagonal, `up` = the anti-diagonal).
+fn diagonal_camera() -> CameraPose {
+    let r = 1.0 / 2.0f32.sqrt();
+    camera([RUN_MID, RUN_CAM_H, RUN_MID], [0.0, -1.0, 0.0], [r, 0.0, -r])
+}
+
+/// Top-down with the screen axes on the world axes, so a +x run is horizontal in the image.
+fn orthogonal_camera() -> CameraPose {
+    camera([RUN_MID, RUN_CAM_H, RUN_MID], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0])
+}
+
+/// Luma of one pixel.
+fn pixel_luma(rgba: &[u8], i: usize) -> f64 {
+    0.299 * rgba[i] as f64 + 0.587 * rgba[i + 1] as f64 + 0.114 * rgba[i + 2] as f64
+}
+
+/// Peak luma of a frame: the conductor's own core brightness, which is the full-coverage
+/// reference the cross-sections are measured against.
+fn peak_luma(rgba: &[u8]) -> f64 {
+    (0..rgba.len() / 4)
+        .map(|i| pixel_luma(rgba, i * 4))
+        .fold(0.0, f64::max)
+}
+
+/// Per-column width of a horizontal conductor band, in pixels: the integral of the coverage
+/// above half the core brightness down each column. A column with no conductor reads zero; the
+/// emissive halo just off the copper sits around a fifth of the core and is excluded; and the
+/// half-core crossing of the edge ramp is the true edge, which makes the figure sub-pixel.
+fn column_widths(rgba: &[u8], w: usize, h: usize, peak: f64) -> Vec<f64> {
+    let lo = 0.5 * peak;
+    (0..w)
+        .map(|x| {
+            (0..h)
+                .map(|y| {
+                    let l = pixel_luma(rgba, (y * w + x) * 4);
+                    ((l - lo) / (peak - lo)).clamp(0.0, 1.0)
+                })
+                .sum::<f64>()
+        })
+        .collect()
+}
+
+/// `(min, median, max)` over the interior of a measured band: the columns between the first and
+/// last that carry conductor, `skip` columns in from each end.
+fn band_stats(widths: &[f64], skip: usize) -> (f64, f64, f64) {
+    let first = widths.iter().position(|w| *w > 0.0).expect("band present");
+    let last = widths.iter().rposition(|w| *w > 0.0).expect("band present");
+    let window = &widths[first + skip..=last - skip];
+    let mut sorted = window.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    (sorted[0], sorted[sorted.len() / 2], sorted[sorted.len() - 1])
+}
+
+/// The conductor's width at the image centre for a top-down 800x800 frame, in pixels: the frame
+/// spans `2 * H * tan(fov/2)` world units, so the scale is uniform across both axes.
+fn run_scale_px() -> f64 {
+    let fov = 58.0f64 * std::f64::consts::PI / 180.0;
+    800.0 / (2.0 * RUN_CAM_H as f64 * (fov / 2.0).tan())
+}
+
+/// Measure one straight run: render it from `pose` and return the conductor's cross-section
+/// statistics in the image -- `(min, median, max, span)` in pixels, the span being how many
+/// columns carry any conductor at all.
+fn measure_run(floor: &FloorMap, s: &Settings, pose: CameraPose) -> Option<(f64, f64, f64, usize)> {
+    let mut r = renderer_with_floor(800, 800, s, floor)?;
+    let frame = empty_frame(1.0, pose, s, &[], &[]);
+    let (w, h, px) = r.render_to_rgba(&frame).expect("run render");
+    let widths = column_widths(&px, w as usize, h as usize, peak_luma(&px));
+    let (min, med, max) = band_stats(&widths, RUN_END_SKIP);
+    let first = widths.iter().position(|v| *v > 0.0).expect("band present");
+    let last = widths.iter().rposition(|v| *v > 0.0).expect("band present");
+    Some((min, med, max, last - first + 1))
+}
+
+/// The three gauge classes and their data half-widths.
+const GAUGES: [(u8, f64); 3] = [(0, 0.2), (1, 0.3), (2, 0.44)];
+
+/// Acceptance: a long 45-degree run renders as one continuous conductor of even width, matching
+/// the same-gauge orthogonal run. The half-segment SDF used to pinch the conductor to zero width
+/// at every cell corner -- a chain of lozenges -- which is the regression the owner reported.
+#[test]
+fn floor_diagonal_runs_are_continuous() {
+    let s = settings();
+    let scale = run_scale_px();
+    for (gauge, hw) in GAUGES {
+        let (min, med, max, span) = match measure_run(&diagonal_run_floor(gauge), &s, diagonal_camera()) {
+            Some(m) => m,
+            None => return,
+        };
+        let (_, straight, _, straight_span) =
+            match measure_run(&orthogonal_run_floor(gauge), &s, orthogonal_camera()) {
+                Some(m) => m,
+                None => return,
+            };
+        let expected = 2.0 * hw * scale;
+        eprintln!(
+            "diagonal gauge {gauge}: span {span} min {min:.2} median {med:.2} max {max:.2} px; \
+             straight run {straight:.2} px (data width {expected:.2})"
+        );
+        assert!(
+            min > 0.25 * med,
+            "gauge {gauge}: the conductor pinches to {min:.2} px against a {med:.2} px run \
+             (substrate between cells)"
+        );
+        assert!(
+            min >= 0.9 * med,
+            "gauge {gauge}: the run waists from {min:.2} to {max:.2} px (median {med:.2})"
+        );
+        // The measured width runs about a third of a pixel under the data width: the output is
+        // sRGB-encoded, so a half-covered pixel reads a little brighter than half the core and the
+        // half-core crossing sits just inside the true edge.
+        assert!(
+            (med - expected).abs() <= 0.5,
+            "gauge {gauge}: the run renders {med:.2} px wide, the data asks for {expected:.2}"
+        );
+        assert!(
+            (med - straight).abs() <= 0.05 * straight,
+            "gauge {gauge}: the 45-degree run is {med:.2} px wide against {straight:.2} px for the \
+             straight run of the same gauge"
+        );
+        // The same nine cells make a run that is sqrt(2) times longer along the world diagonal, so
+        // the rendered spans say whether the corner copper stays exactly on the route: a phantom
+        // half-segment past an end (or a missing one) shows up here first.
+        let straight_diag_span = straight_span as f64 * 2.0f64.sqrt();
+        assert!(
+            (span as f64 - straight_diag_span).abs() <= 12.0,
+            "gauge {gauge}: the 45-degree run spans {span} px against {straight_diag_span:.0} for a \
+             run of the same cell length"
+        );
+    }
+}
+
+/// Acceptance: the orthogonal run is unchanged -- one conductor of exactly its data width, with no
+/// waisting along it. The half-segment construction was already exact for orthogonal traces (each
+/// cell's mirror bit continues the run collinearly), so this pins that the corner union did not
+/// disturb it.
+#[test]
+fn floor_orthogonal_runs_are_unchanged() {
+    let s = settings();
+    let scale = run_scale_px();
+    for (gauge, hw) in GAUGES {
+        let (min, med, max, span) = match measure_run(&orthogonal_run_floor(gauge), &s, orthogonal_camera()) {
+            Some(m) => m,
+            None => return,
+        };
+        let expected = 2.0 * hw * scale;
+        eprintln!(
+            "orthogonal gauge {gauge}: span {span} min {min:.2} median {med:.2} max {max:.2} px \
+             (data width {expected:.2})"
+        );
+        assert!(
+            min >= 0.95 * med,
+            "gauge {gauge}: the orthogonal run waists from {min:.2} to {max:.2} px \
+             (median {med:.2})"
+        );
+        assert!(
+            (med - expected).abs() <= 0.5,
+            "gauge {gauge}: the run renders {med:.2} px wide, the data asks for {expected:.2}"
+        );
+    }
+}
+
 /// Write `docs/scratch/floor-overhead.png` (1920x1080, straight-down floor view, CRT off) to
 /// inspect the circuit-board look. `GIBSON_RENDER_PROBE_OUT` redirects the path. Gated behind
 /// `GIBSON_RENDER_PROBE=1`.
