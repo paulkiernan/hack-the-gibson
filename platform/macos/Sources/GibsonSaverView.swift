@@ -1,5 +1,4 @@
 import AppKit
-import CoreGraphics
 import Metal
 import QuartzCore
 import ScreenSaver
@@ -86,9 +85,7 @@ final class GibsonSaverView: ScreenSaverView {
     private var frameTimeTotal: CFTimeInterval = 0
     private var frameTimeCount = 0
     private var lastStatsWallClock: CFAbsoluteTime = 0
-    /// Consecutive sweeps in which this view's window was not on screen, and
-    /// whether it has ever been displayed (grace period on start).
-    private var offScreenSweeps = 0
+    /// Whether the view has ever been displayed (grace period at start).
     private var hasBeenDisplayed = false
     private var engineStartedAt: CFAbsoluteTime = 0
     /// The CAMetalLayer handed to wgpu at engine start, compared each stats
@@ -103,9 +100,15 @@ final class GibsonSaverView: ScreenSaverView {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleNewInstance(_:)),
             name: Self.newInstanceNotification, object: nil)
-        DistributedNotificationCenter.default().addObserver(
-            self, selector: #selector(handleWillStop(_:)),
-            name: NSNotification.Name("com.apple.screensaver.willstop"), object: nil)
+        // Both notifications are observed: `willstop` is the reliable one in
+        // practice, but a dismissal has been seen where it never arrived (the
+        // engine then kept rendering slowly until the next activation claimed
+        // the display), so the companion `didstop` is a second trigger.
+        for name in ["com.apple.screensaver.willstop", "com.apple.screensaver.didstop"] {
+            DistributedNotificationCenter.default().addObserver(
+                self, selector: #selector(handleWillStop(_:)),
+                name: NSNotification.Name(name), object: nil)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -159,10 +162,8 @@ final class GibsonSaverView: ScreenSaverView {
     private static var ownerByDisplay: [UInt32: WeakViewRef] = [:]
     private static var sweepTimer: Timer?
 
-    /// How often the sweep re-checks that live engines still belong to a
-    /// displayed window, and how many consecutive misses mean "gone".
+    /// How often the sweep re-checks that live engines still have a window.
     private static let sweepInterval: TimeInterval = 2
-    private static let sweepsBeforeTeardown = 2
 
     private static func register(_ view: GibsonSaverView) {
         liveViews.removeAll { $0.view == nil }
@@ -190,43 +191,30 @@ final class GibsonSaverView: ScreenSaverView {
         sweepTimer = timer
     }
 
-    /// Retire engines whose view no longer belongs on screen. A dismissed
-    /// screen saver can leave its view alive with the window ordered out, and
-    /// its display link suspended means the per-frame gate never runs, so this
-    /// has to be driven from the process, not from the view's own tick.
+    /// Retire engines whose view has lost its window. A dismissed screen saver
+    /// can leave its view alive with the window ordered out, and a suspended
+    /// display link means the per-frame gate never runs, so this has to be
+    /// driven from the process, not from the view's own tick.
+    ///
+    /// The predicate is deliberately lifecycle-only. A `CGWindowListCopyWindowInfo`
+    /// "on screen" membership test was tried here and removed: screen saver
+    /// windows never appear in that list even while they are the only thing on
+    /// screen (measured directly during this investigation), so it tore down
+    /// live engines ~4 s into every activation. `occlusionState` is unusable
+    /// for the same reason. Only `window == nil` / `!isVisible` answer the
+    /// question at this window level.
     private static func sweep() {
         liveViews.removeAll { $0.view == nil }
         for ref in liveViews {
             guard let view = ref.view, view.gibsonHandle != nil else { continue }
             if view.window == nil || view.window?.isVisible == false {
                 view.teardown(reason: "window gone")
-                continue
-            }
-            if view.windowIsOnScreen {
-                view.offScreenSweeps = 0
-                continue
-            }
-            view.offScreenSweeps += 1
-            if view.offScreenSweeps >= sweepsBeforeTeardown {
-                view.teardown(reason: "window no longer on screen")
             }
         }
-    }
-
-    /// Main-thread WindowServer query: is any of our windows in the on-screen
-    /// set? Unlike `occlusionState` this is the compositor's own answer.
-    private var windowIsOnScreen: Bool {
-        guard let number = window?.windowNumber, number > 0,
-              let list = CGWindowListCopyWindowInfo(
-                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] else {
-            return false
-        }
-        return list.contains { ($0[kCGWindowNumber as String] as? Int) == number }
     }
 
     /// Destroy the engine, drop out of the hierarchy and stop being tracked.
-    /// Called for detached, superseded and off-screen views.
+    /// Called for detached and superseded views.
     private func teardown(reason: String) {
         guard gibsonHandle != nil || superview != nil else { return }
         Self.log.info("tearing down engine (\(reason, privacy: .public))")
@@ -258,8 +246,8 @@ final class GibsonSaverView: ScreenSaverView {
         scheduleTerminateIfNeeded()
     }
 
-    /// The engine never calls `stopAnimation` when the saver ends; the
-    /// distributed `willstop` notification does arrive, so treat it the same.
+    /// The engine never calls `stopAnimation` when the saver ends, so the
+    /// distributed stop notifications are treated the same way.
     @objc private func handleWillStop(_ note: Notification) {
         if Thread.isMainThread {
             willStop()
@@ -269,7 +257,7 @@ final class GibsonSaverView: ScreenSaverView {
     }
 
     private func willStop() {
-        Self.log.info("willstop notification received")
+        Self.log.info("screen saver stop notification received")
         stopEngine()
         scheduleTerminateIfNeeded()
     }
@@ -356,7 +344,6 @@ final class GibsonSaverView: ScreenSaverView {
         gibsonHandle = handle
         engineStartedAt = CACurrentMediaTime()
         hasBeenDisplayed = false
-        offScreenSweeps = 0
         Self.register(self)
         if let display = displayNumber {
             // One engine per display, across activations: the host process
@@ -385,7 +372,6 @@ final class GibsonSaverView: ScreenSaverView {
             Self.log.info("gibson_destroy ok")
         }
         Self.unregister(self)
-        offScreenSweeps = 0
         hasBeenDisplayed = false
         frameFailures = 0
         lastLogicalSize = .zero
@@ -525,6 +511,8 @@ final class GibsonSaverView: ScreenSaverView {
             + "(total presented=\(presented), stats=\(statsCode)) "
             + "skipTimeout=\(deltaTimeout) skipOccluded=\(deltaOccluded) "
             + "windowVisible=\(window?.isVisible ?? false) "
+            + "key=\(window?.isKeyWindow ?? false) main=\(window?.isMainWindow ?? false) "
+            + "screenAttached=\(window?.screen != nil) "
             + "occlusionVisible=\(window?.occlusionState.contains(.visible) ?? false) "
             + "level=\(Int(level)) onActiveSpace=\(onActiveSpace) windowNumber=\(windowNumber) "
             + "screen=\(Int(screenFrame.width))x\(Int(screenFrame.height)) "
