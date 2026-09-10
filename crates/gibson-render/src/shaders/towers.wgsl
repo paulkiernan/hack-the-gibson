@@ -118,6 +118,21 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let bf = in.uv.y * f32(bands);
     let band = u32(min(floor(bf), f32(bands - 1u)));
 
+    // Texture LOD for the atlas sample, derived from the screen-space footprint of the face
+    // UVs. Derivative builtins must sit in uniform control flow, so they are evaluated here at
+    // the top level (before the far-face early-out below) and the result is used later. A side
+    // band maps the full 768-row panel over 1/bands of the face, hence the vertical scale.
+    let duv_dx = dpdx(in.uv);
+    let duv_dy = dpdy(in.uv);
+    let v_scale = select(256.0, f32(bands) * 768.0, in.face != 4u);
+    let texel_dx = max(abs(duv_dx.x), abs(duv_dy.x)) * 256.0;
+    let texel_dy = max(abs(duv_dx.y), abs(duv_dy.y)) * v_scale;
+    // -0.5 LOD bias: the standard sharpening knob. Mid-distance faces land on mip 1-2 purely
+    // from dense text minification, which reads as soft even though it removes the aliasing;
+    // biasing toward the sharper level keeps the mosaic punchy up close while distant faces
+    // still filter down (the bias is a fraction of a level, not a mip disable).
+    let lod = log2(max(max(texel_dx, texel_dy), 1.0)) - 0.5;
+
     // Glass body: opacity with a subtle vertical gradient (brighter toward the top).
     let vgrad = clamp(in.world.y / in.height, 0.0, 1.0);
     var col = u.tower_body.rgb * u.tower_body.a * (0.8 + 0.4 * vgrad);
@@ -200,7 +215,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let layer = panel + 32u * parity;
 
     // One explicit-LOD sample after the layer is fully resolved (non-uniform layer index).
-    let samp = textureSampleLevel(atlas_tex, atlas_smp, suv, i32(layer), 0.0);
+    // `lod` comes from the uniform-flow footprint calculation at the top of this function.
+    let samp = textureSampleLevel(atlas_tex, atlas_smp, suv, i32(layer), lod);
     let glyph = samp.r * visible;
     col += u.tower_text.rgb * glyph;
 

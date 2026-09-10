@@ -258,6 +258,17 @@ never put the renderer out of bounds.
 | `seed` | 0 | any 64-bit integer | City, atlas, and floor seed; 0 derives one from the clock |
 | `preview` | false | true / false | Screensaver-preview mode; hosts set this themselves |
 
+**High-DPI rendering is capped automatically.** On screen (desktop window, macOS
+saver, xscreensaver hack, Windows `.scr`, web canvas) the render target is capped
+at 2.8 megapixels, whatever the display resolution: a 2940x1912 saver drawable
+renders at about 2078x1352 and the compositor upscales. Rendering cost is
+fill-rate proportional (~5 ms per megapixel), so the cap is what keeps a 60 Hz
+frame achievable, and above it the extra pixels are detail nobody sees in motion.
+`render_scale` is unchanged and still multiplies on top of the cap, so the
+slider/setting works in both directions (a 0.5 there halves the capped target
+again). Offscreen renders are never capped: `--snapshot --size WxH` always
+produces exactly `WxH`, which is what the committed screenshots and CI rely on.
+
 Where each host stores or accepts them:
 
 - **macOS Options sheet** (System Settings > Wallpaper > Screen Saver >

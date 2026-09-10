@@ -155,7 +155,7 @@ fn atlas_sampler(device: &wgpu::Device) -> wgpu::Sampler {
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..Default::default()
     })
 }
@@ -204,7 +204,17 @@ fn scene_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
+/// Mip levels for the atlas: 256x768 -> 128x384 -> 64x192.
+///
+/// Mipmapped sampling is the standard real-time fix for minified texture reads: without it
+/// every distant text fragment fetches four texels from a 256x768 x 64-layer array, which
+/// thrashes the texture cache (and aliases) for the many mid/far faces a canyon view stacks.
+/// Only the R (glyph coverage) channel is meaningful when filtered; the block metadata fetch
+/// uses `textureLoad`, which always reads level 0.
+const ATLAS_MIPS: u32 = 3;
+
 fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) -> wgpu::Texture {
+    let started = std::time::Instant::now();
     let tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("gibson-atlas"),
         size: wgpu::Extent3d {
@@ -212,7 +222,7 @@ fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) 
             height: atlas.height,
             depth_or_array_layers: atlas.layers,
         },
-        mip_level_count: 1,
+        mip_level_count: ATLAS_MIPS,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
@@ -238,6 +248,67 @@ fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) 
             height: atlas.height,
             depth_or_array_layers: atlas.layers,
         },
+    );
+
+    // Box-filter the remaining levels on the CPU (once, at startup) and upload them
+    // layer-major, exactly like level 0.
+    let layers = atlas.layers as usize;
+    let mut src = atlas.rgba.clone();
+    let (mut w, mut h) = (atlas.width, atlas.height);
+    for mip in 1..ATLAS_MIPS {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let src_layer = (w * h * 4) as usize;
+        let dst_layer = (nw * nh * 4) as usize;
+        let mut dst = vec![0u8; dst_layer * layers];
+        for layer in 0..layers {
+            let s = &src[layer * src_layer..(layer + 1) * src_layer];
+            let d = &mut dst[layer * dst_layer..(layer + 1) * dst_layer];
+            for y in 0..nh as usize {
+                for x in 0..nw as usize {
+                    let mut acc = [0u32; 4];
+                    for dy in 0..2 {
+                        for dx in 0..2 {
+                            let sx = (x * 2 + dx).min(w as usize - 1);
+                            let sy = (y * 2 + dy).min(h as usize - 1);
+                            let i = (sy * w as usize + sx) * 4;
+                            for c in 0..4 {
+                                acc[c] += s[i + c] as u32;
+                            }
+                        }
+                    }
+                    let o = (y * nw as usize + x) * 4;
+                    for c in 0..4 {
+                        d[o + c] = (acc[c] / 4) as u8;
+                    }
+                }
+            }
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex,
+                mip_level: mip,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &dst,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(nw * 4),
+                rows_per_image: Some(nh),
+            },
+            wgpu::Extent3d {
+                width: nw,
+                height: nh,
+                depth_or_array_layers: atlas.layers,
+            },
+        );
+        src = dst;
+        w = nw;
+        h = nh;
+    }
+    log::debug!(
+        "gibson-render: atlas uploaded with {ATLAS_MIPS} mips in {:.1} ms",
+        started.elapsed().as_secs_f64() * 1000.0
     );
     tex
 }

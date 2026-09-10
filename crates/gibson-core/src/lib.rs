@@ -62,6 +62,29 @@ pub struct Gibson {
     settings: Settings,
     /// Host time of the first `frame`/`snapshot` call; defines the scene's `t = 0`.
     t0: Option<f64>,
+    /// True when this instance presents to a surface (Window/Raw); offscreen instances are
+    /// never subject to the on-screen pixel budget.
+    on_screen: bool,
+    /// Last effective scale handed to the renderer (so resize only logs real changes).
+    last_scale: f32,
+}
+
+/// The scale actually handed to the renderer: the caller's scale times, for on-screen targets
+/// only, an automatic cap that keeps the render target inside [`MAX_ON_SCREEN_PIXELS`].
+///
+/// The budget is applied to the *physical* pixel count the caller's scale would produce
+/// (`width * scale` by `height * scale`), not to the logical size: a 1280x800 window on a 2x
+/// display renders 2560x1600 physical pixels and must be capped like any other 4.1 Mpx target.
+/// `auto = min(1.0, sqrt(MAX_ON_SCREEN_PIXELS / (w_phys * h_phys)))`. Offscreen targets use the
+/// caller's scale unchanged, so `--snapshot --size WxH` always produces exactly that size.
+fn effective_scale(on_screen: bool, width: u32, height: u32, scale: f32) -> f32 {
+    if !on_screen {
+        return scale;
+    }
+    let w_phys = (width.max(1) as f32) * scale;
+    let h_phys = (height.max(1) as f32) * scale;
+    let auto = (gibson_types::MAX_ON_SCREEN_PIXELS / (w_phys * h_phys)).sqrt().min(1.0);
+    scale * auto
 }
 
 impl Gibson {
@@ -88,6 +111,9 @@ impl Gibson {
         desc.backends = backends();
         let instance = wgpu::Instance::new(desc);
 
+        // Whether we present to a surface (Window/Raw) or render purely offscreen. This is the
+        // switch that decides if the on-screen pixel budget applies.
+        let on_screen = !matches!(target, SurfaceTarget::Offscreen);
         let surface = match target {
             SurfaceTarget::Window(t) => Some(
                 instance
@@ -106,7 +132,11 @@ impl Gibson {
         let mut scene = Scene::new(&settings, seed);
         scene.set_block_ids(atlas.blocks_per_panel.clone());
 
-        let renderer = Renderer::new(&instance, surface, width, height, scale, &atlas, &floor, &settings)
+        let renderer_scale = effective_scale(on_screen, width, height, scale);
+        log::info!("gibson-core: render target {}x{} (scale {renderer_scale:.3})",
+            ((width as f32) * renderer_scale).round().max(1.0) as u32,
+            ((height as f32) * renderer_scale).round().max(1.0) as u32);
+        let renderer = Renderer::new(&instance, surface, width, height, renderer_scale, &atlas, &floor, &settings)
             .await
             .map_err(GibsonError::Render)?;
 
@@ -115,12 +145,24 @@ impl Gibson {
             renderer,
             settings,
             t0: None,
+            on_screen,
+            last_scale: renderer_scale,
         })
     }
 
     /// Resize the presentation surface (and render target) in physical pixels.
+    ///
+    /// The on-screen pixel budget is re-derived here, so a window dragged from a Retina display
+    /// to a non-Retina one (or between differently sized displays) picks up the right cap.
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
-        self.renderer.resize(width, height, scale);
+        let renderer_scale = effective_scale(self.on_screen, width, height, scale);
+        if renderer_scale != self.last_scale {
+            log::info!("gibson-core: render target {}x{} (scale {renderer_scale:.3})",
+                ((width as f32) * renderer_scale).round().max(1.0) as u32,
+                ((height as f32) * renderer_scale).round().max(1.0) as u32);
+            self.last_scale = renderer_scale;
+        }
+        self.renderer.resize(width, height, renderer_scale);
     }
 
     /// Advance the scene to `time_seconds` (host monotonic; the first call defines `t = 0`) and
@@ -200,4 +242,81 @@ fn time_derived_seed() -> u64 {
 #[cfg(target_arch = "wasm32")]
 fn time_derived_seed() -> u64 {
     0x6A63_6F72_655F_3030
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// On-screen targets are capped to the pixel budget; the derived scale for the 2940x1912
+    /// screensaver drawable must land near 2078x1352.
+    #[test]
+    fn on_screen_scale_is_capped_to_the_budget() {
+        let scale = effective_scale(true, 2940, 1912, 1.0);
+        let (w, h) = (
+            (2940.0 * scale).round() as u32,
+            (1912.0 * scale).round() as u32,
+        );
+        assert!(
+            (2060..=2096).contains(&w) && (1334..=1370).contains(&h),
+            "expected ~2078x1352, got {w}x{h} (scale {scale})"
+        );
+        assert!(scale < 1.0);
+    }
+
+    /// Offscreen renders are never capped: `--snapshot --size 2940x1912` must stay 2940x1912.
+    #[test]
+    fn offscreen_scale_is_never_capped() {
+        assert_eq!(effective_scale(false, 2940, 1912, 1.0), 1.0);
+        assert_eq!(effective_scale(false, 8000, 8000, 0.75), 0.75);
+    }
+
+    /// A window already inside the budget keeps its scale exactly.
+    #[test]
+    fn small_window_is_untouched() {
+        assert_eq!(effective_scale(true, 1280, 800, 1.0), 1.0);
+        assert_eq!(effective_scale(true, 1600, 900, 1.0), 1.0);
+    }
+
+    /// The user's multiplier stays a multiplier: it scales on top of the automatic cap, and a
+    /// High-DPI window (1280x800 logical at 2x = 4.1 Mpx physical) is capped to the budget.
+    #[test]
+    fn render_scale_multiplies_on_top_of_the_cap() {
+        let auto = effective_scale(true, 1280, 800, 2.0);
+        assert!((1280.0 * auto - 1280.0 * 2.0 * 0.827).abs() < 6.0, "auto {auto}");
+        let (w, h) = (1280.0 * auto, 800.0 * auto);
+        let px = w * h;
+        assert!(
+            (px / gibson_types::MAX_ON_SCREEN_PIXELS - 1.0).abs() < 0.01,
+            "capped physical pixels {px} should sit at the budget"
+        );
+        // Under budget, the user's scale passes through untouched.
+        assert_eq!(effective_scale(true, 1280, 800, 1.0), 1.0);
+    }
+
+    /// End-to-end: an offscreen instance at the screensaver size still produces a snapshot of
+    /// exactly that size (the cap must not leak into the offscreen path). Skips (and passes)
+    /// when the machine has no usable GPU adapter.
+    #[test]
+    fn offscreen_snapshot_keeps_the_requested_size() {
+        let settings = Settings { seed: 7, ..Settings::default() };
+        let gibson = pollster::block_on(Gibson::new(
+            SurfaceTarget::Offscreen,
+            2940,
+            1912,
+            1.0,
+            settings,
+        ));
+        let mut gibson = match gibson {
+            Ok(g) => g,
+            Err(GibsonError::Render(RenderError::NoAdapter | RenderError::NoDevice(_))) => {
+                eprintln!("skipped: no graphics adapter/device available");
+                return;
+            }
+            Err(e) => panic!("offscreen renderer creation failed: {e}"),
+        };
+        let (w, h, rgba) = gibson.snapshot(0.0).expect("offscreen snapshot");
+        assert_eq!((w, h), (2940, 1912), "offscreen snapshot must keep the requested size");
+        assert_eq!(rgba.len(), 2940 * 1912 * 4);
+    }
 }

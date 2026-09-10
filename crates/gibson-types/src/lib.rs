@@ -38,6 +38,17 @@ pub const ATLAS_LAYERS: u32 = 64;
 pub const FOG_START: f32 = 220.0;
 pub const FOG_END: f32 = 900.0;
 
+/// Pixel budget for a live (on-screen) render target: 2.8 Mpx.
+///
+/// Rendering cost is fill-rate proportional - measured on an Apple M3 at roughly 5 ms per
+/// megapixel for the full chain (towers, bloom, motion blur, CRT composite) - so a 2940x1912
+/// screensaver drawable (5.6 Mpx) costs ~28 ms/frame (25-36 fps) while this budget costs about
+/// half that and keeps a 60 Hz frame achievable. Above this, extra pixels buy detail nobody
+/// sees in motion; the window's compositor upscales instead. Hosts apply this only to surfaces
+/// they present to (`SurfaceTarget::Window` / `Raw`); offscreen renders (snapshots, CI) are
+/// never capped.
+pub const MAX_ON_SCREEN_PIXELS: f32 = 2.8e6;
+
 /// User-adjustable settings. Serialized by hosts (`.saver` defaults, `gibson.toml`, web query
 /// params); `clamped()` normalizes any input (config files, CLI, query strings) to valid ranges.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
