@@ -36,9 +36,16 @@ SLICES_QUOTED := $(foreach s,$(SLICES),"$(s)")
 $(foreach arch,$(ARCHS),$(eval $(BUILD)/$(arch)/$(BUNDLE): arch := $(arch)))
 $(foreach arch,$(ARCHS),$(eval $(BUILD)/$(arch)/$(BUNDLE): triple := $(TRIPLE_$(arch))))
 
-.PHONY: all install uninstall clean
+.PHONY: all install uninstall clean force
 
 all: $(BUILD)/$(PRODUCT)
+
+# The Rust sources are deliberately NOT file prerequisites: make cannot track
+# cargo's own incremental state, and a stale `libgibson_ffi.a` silently
+# shipped in the bundle is exactly the bug that wastes measurement cycles.
+# Every build therefore runs cargo (which decides what to recompile) and
+# relinks the Swift host against whatever cargo just produced.
+force:
 
 # One slice per architecture: build the Rust staticlib, discover the native
 # artifacts rustc needs (frameworks/libobjc …), then compile the Swift host
@@ -55,7 +62,7 @@ all: $(BUILD)/$(PRODUCT)
 # list for this dependency set with a loud warning. `CARGO_TERM_COLOR=never`
 # keeps the note parseable even when the caller exports `CARGO_TERM_COLOR=always`
 # (CI does), and any residual ANSI escapes are stripped.
-$(BUILD)/%/$(BUNDLE): $(SOURCES) $(HEADER) Makefile
+$(BUILD)/%/$(BUNDLE): force $(SOURCES) $(HEADER) Makefile
 	@mkdir -p "$(dir $@)"
 	@for attempt in 1 2; do \
 		rm -rf "$(ROOT)/target/$(triple)/release/.fingerprint/gibson-ffi-"*; \

@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import Metal
 import QuartzCore
 import ScreenSaver
@@ -85,6 +86,11 @@ final class GibsonSaverView: ScreenSaverView {
     private var frameTimeTotal: CFTimeInterval = 0
     private var frameTimeCount = 0
     private var lastStatsWallClock: CFAbsoluteTime = 0
+    /// Consecutive sweeps in which this view's window was not on screen, and
+    /// whether it has ever been displayed (grace period on start).
+    private var offScreenSweeps = 0
+    private var hasBeenDisplayed = false
+    private var engineStartedAt: CFAbsoluteTime = 0
     /// The CAMetalLayer handed to wgpu at engine start, compared each stats
     /// tick with the view's current layer to detect a host layer swap.
     private weak var configuredLayer: CAMetalLayer?
@@ -132,6 +138,100 @@ final class GibsonSaverView: ScreenSaverView {
             Self.log.info("debug layer fill: backing layer painted red")
         }
         return layer
+    }
+
+    // MARK: - Process-wide lifecycle registry
+
+    private final class WeakViewRef {
+        weak var view: GibsonSaverView?
+        init(_ view: GibsonSaverView) { self.view = view }
+    }
+
+    /// Views with a live engine, and the single owner allowed per display.
+    ///
+    /// The host process outlives activations, and `stopAnimation` is not
+    /// guaranteed at exit, so a view must be retired by us. The occlusion shim
+    /// (see `NilWindowLayerDelegate`) removed wgpu's accidental throttle for a
+    /// view whose window is not displayed, so an explicit lifecycle gate is
+    /// required — never `occlusionState`, which is meaningless at the screen
+    /// saver window level. Main thread only.
+    private static var liveViews: [WeakViewRef] = []
+    private static var ownerByDisplay: [UInt32: WeakViewRef] = [:]
+    private static var sweepTimer: Timer?
+
+    /// How often the sweep re-checks that live engines still belong to a
+    /// displayed window, and how many consecutive misses mean "gone".
+    private static let sweepInterval: TimeInterval = 2
+    private static let sweepsBeforeTeardown = 2
+
+    private static func register(_ view: GibsonSaverView) {
+        liveViews.removeAll { $0.view == nil }
+        if !liveViews.contains(where: { $0.view === view }) {
+            liveViews.append(WeakViewRef(view))
+        }
+        startSweepIfNeeded()
+    }
+
+    private static func unregister(_ view: GibsonSaverView) {
+        liveViews.removeAll { $0.view == nil || $0.view === view }
+        for (display, ref) in ownerByDisplay where ref.view == nil || ref.view === view {
+            ownerByDisplay.removeValue(forKey: display)
+        }
+        if liveViews.isEmpty {
+            sweepTimer?.invalidate()
+            sweepTimer = nil
+        }
+    }
+
+    private static func startSweepIfNeeded() {
+        guard sweepTimer == nil else { return }
+        let timer = Timer(timeInterval: sweepInterval, repeats: true) { _ in sweep() }
+        RunLoop.main.add(timer, forMode: .common)
+        sweepTimer = timer
+    }
+
+    /// Retire engines whose view no longer belongs on screen. A dismissed
+    /// screen saver can leave its view alive with the window ordered out, and
+    /// its display link suspended means the per-frame gate never runs, so this
+    /// has to be driven from the process, not from the view's own tick.
+    private static func sweep() {
+        liveViews.removeAll { $0.view == nil }
+        for ref in liveViews {
+            guard let view = ref.view, view.gibsonHandle != nil else { continue }
+            if view.window == nil || view.window?.isVisible == false {
+                view.teardown(reason: "window gone")
+                continue
+            }
+            if view.windowIsOnScreen {
+                view.offScreenSweeps = 0
+                continue
+            }
+            view.offScreenSweeps += 1
+            if view.offScreenSweeps >= sweepsBeforeTeardown {
+                view.teardown(reason: "window no longer on screen")
+            }
+        }
+    }
+
+    /// Main-thread WindowServer query: is any of our windows in the on-screen
+    /// set? Unlike `occlusionState` this is the compositor's own answer.
+    private var windowIsOnScreen: Bool {
+        guard let number = window?.windowNumber, number > 0,
+              let list = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else {
+            return false
+        }
+        return list.contains { ($0[kCGWindowNumber as String] as? Int) == number }
+    }
+
+    /// Destroy the engine, drop out of the hierarchy and stop being tracked.
+    /// Called for detached, superseded and off-screen views.
+    private func teardown(reason: String) {
+        guard gibsonHandle != nil || superview != nil else { return }
+        Self.log.info("tearing down engine (\(reason, privacy: .public))")
+        stopEngine()
+        removeFromSuperview()
     }
 
     // MARK: - Animation lifecycle
@@ -254,6 +354,19 @@ final class GibsonSaverView: ScreenSaverView {
             return
         }
         gibsonHandle = handle
+        engineStartedAt = CACurrentMediaTime()
+        hasBeenDisplayed = false
+        offScreenSweeps = 0
+        Self.register(self)
+        if let display = displayNumber {
+            // One engine per display, across activations: the host process
+            // never exits, so an older view's engine must not keep rendering
+            // under the new one.
+            if let existing = Self.ownerByDisplay[display]?.view, existing !== self {
+                existing.teardown(reason: "superseded on this display")
+            }
+            Self.ownerByDisplay[display] = Self.WeakViewRef(self)
+        }
         ensureLayerDelegate()
         lastLogicalSize = logical
         lastScale = scale
@@ -271,6 +384,9 @@ final class GibsonSaverView: ScreenSaverView {
             gibsonHandle = nil
             Self.log.info("gibson_destroy ok")
         }
+        Self.unregister(self)
+        offScreenSweeps = 0
+        hasBeenDisplayed = false
         frameFailures = 0
         lastLogicalSize = .zero
         lastScale = 0
@@ -307,6 +423,18 @@ final class GibsonSaverView: ScreenSaverView {
 
     @objc private func renderTick(_ link: CADisplayLink) {
         guard let handle = gibsonHandle else { return }
+        // Lifecycle gate (never occlusion): a view with no window, or a window
+        // the host has ordered out, must stop rendering and destroy its engine.
+        let displayed = window != nil && (window?.isVisible ?? false)
+        if !displayed {
+            let grace = !hasBeenDisplayed && CACurrentMediaTime() - engineStartedAt < 2
+            if !grace {
+                teardown(reason: "view detached")
+                return
+            }
+            return
+        }
+        hasBeenDisplayed = true
         ensureLayerDelegate()
         let started = CACurrentMediaTime()
         let code = gibson_frame(handle, started)
