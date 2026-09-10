@@ -32,8 +32,13 @@ activation; the values are the same ones documented in the project README.
 
 ## Status
 
-**Compile-verified in CI, not runtime-tested.** No Windows machine is
-available to the developers, so the `.scr` protocol paths (`/s`, `/p`, `/c`)
-have never been exercised live — the CI job only proves the binary builds.
-The windowed desktop app (`gibson-app.exe` with no arguments) is the
-runtime-verified path on the platforms the developers actually use.
+**Verified on real hardware.** The maintainer has run this host on Windows and
+confirmed it works, and CI builds and tests the binary on every push.
+
+One caveat worth keeping in mind: the renderer itself is shared with every
+other host and is exercised constantly, but the Windows-specific plumbing —
+the `/s`, `/p <hwnd>` and `/c` protocol paths, per-monitor fullscreen window
+creation, and the input handling that dismisses the saver — has had far less
+mileage than the macOS and web paths. If something misbehaves there, it is
+more likely to be in this file's code than in the renderer, so please open an
+issue with the argument the system passed.

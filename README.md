@@ -141,9 +141,9 @@ cargo build --release -p gibson-app
 copy target\release\gibson-app.exe Gibson.scr
 ```
 
-**Unverified on real hardware:** the Windows host is compile-verified in CI
-only — nobody has run it yet — so the release download is the convenient
-path, not a proven one. Treat it accordingly.
+**Verified on real hardware.** The Windows host has been run and confirmed
+working by the maintainer, in addition to being built and tested in CI on
+every push.
 
 ### Linux xscreensaver
 
@@ -228,11 +228,11 @@ A windowed flythrough opens; press Esc or Q to quit. Useful flags (see
 --config /path/to/gibson.toml         alternate settings file
 ```
 
-**Platform status, stated plainly:** the macOS saver, the desktop app, and
-the web build are the runtime-tested paths. The Windows `.scr` and Linux
-xscreensaver hosts are **compile-verified in CI only — nobody has run them
-yet**; they are documented as untested in their platform READMEs and should
-be treated accordingly.
+**Platform status, stated plainly:** the macOS saver, the Windows `.scr`, the
+desktop app, and the web build have all been run on real hardware. The Linux
+xscreensaver host is **compile-verified in CI only — nobody has run it yet**;
+it is documented as untested in `platform/linux/README.md` and should be
+treated accordingly.
 
 ## Settings
 

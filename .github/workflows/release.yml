@@ -266,7 +266,7 @@ jobs:
 
           Clearing the attribute does not affect the code signature.
 
-          The Windows and Linux hosts are compile-verified in CI on every release but have not been
+          The Linux xscreensaver host is compile-verified in CI on every release but has not been
           run on real hardware yet.
           EOF
           # `--prerelease` takes the guard's answer directly, so a stable tag and
