@@ -8,6 +8,18 @@
 //!
 //! Settings precedence everywhere: `defaults < gibson.toml < CLI overrides`.
 
+// The shipped `Gibson.scr` must be a GUI-subsystem binary: a console-subsystem
+// screensaver makes Windows flash a cmd window over the lock screen on every
+// activation. The console CLI surface (`--help`, `--snapshot`, RUST_LOG output)
+// is preserved by reattaching to the launching console in `main` — see
+// `windows::attach_parent_console`. Kept unconditional rather than gated on
+// `not(debug_assertions)` so the configuration that ships is the one developers
+// run every day (attach regressions show up in debug), and because
+// `cargo test` output is unaffected: cargo captures test output through
+// inherited pipe handles, while the subsystem only controls whether Windows
+// allocates a console.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod cli;
 mod config;
 mod desktop;
@@ -25,6 +37,12 @@ use clap::Parser;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // First thing: on Windows reattach to the launching console so the CLI
+    // surface (--help/--version/errors/RUST_LOG) still prints. No-op when there
+    // is no parent console (screensaver host, double-click) — the normal path.
+    #[cfg(windows)]
+    windows::attach_parent_console();
+
     env_logger::init();
 
     // The Windows screensaver protocol hands the .scr arguments clap cannot

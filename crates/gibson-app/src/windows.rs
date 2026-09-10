@@ -56,6 +56,60 @@ pub fn run(mode: WindowsSaverMode) -> Result<(), String> {
     }
 }
 
+/// Reattach to the console of the process that launched us, when there is one.
+///
+/// `gibson-app` is built as a Windows GUI-subsystem binary so neither the
+/// screensaver nor the preview ever flashes a console window. The same binary
+/// is also a CLI, so when it is launched from cmd or PowerShell we adopt the
+/// parent's console to keep `--help`, `--version`, `--snapshot` and
+/// `RUST_LOG` output visible. `AttachConsole` fails when the process already
+/// has a console (the argument is ignored) and when the parent has none (the
+/// screensaver host and double-click cases); both are silent no-ops, which is
+/// exactly the screensaver behaviour we want.
+///
+/// Rust's std re-queries `GetStdHandle` on every read/write (see rust-src
+/// `library/std/src/sys/stdio/windows.rs`: "Don't cache handles but get them
+/// fresh for every read/write"), so attaching before any output is printed is
+/// sufficient for `println!`/`eprintln!`; the CONOUT$/CONIN$ fallback below
+/// only covers the case where the console attach did not set the process's
+/// standard handles.
+pub fn attach_parent_console() {
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Console::{
+        AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE,
+        STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+
+    if unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } == 0 {
+        // No parent console: the normal screensaver path. Nothing to do, and
+        // nothing may be printed here (there would be nowhere to print it).
+        return;
+    }
+
+    for (id, device, for_writing) in [
+        (STD_OUTPUT_HANDLE, "CONOUT$", true),
+        (STD_ERROR_HANDLE, "CONOUT$", true),
+        (STD_INPUT_HANDLE, "CONIN$", false),
+    ] {
+        let current: HANDLE = unsafe { GetStdHandle(id) };
+        if !current.is_null() && current != INVALID_HANDLE_VALUE {
+            continue; // the attach already wired this one up
+        }
+        let opened = if for_writing {
+            std::fs::OpenOptions::new().write(true).open(device)
+        } else {
+            std::fs::OpenOptions::new().read(true).open(device)
+        };
+        if let Ok(file) = opened {
+            use std::os::windows::io::AsRawHandle;
+            unsafe { SetStdHandle(id, file.as_raw_handle() as HANDLE) };
+            // The standard handle must stay valid for the process lifetime;
+            // leak the File instead of closing it here.
+            std::mem::forget(file);
+        }
+    }
+}
+
 /// Render into the host-owned preview window until it is destroyed.
 fn run_preview(hwnd_value: isize, mut settings: Settings) -> Result<(), String> {
     let hwnd = hwnd_value as HWND;

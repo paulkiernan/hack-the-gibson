@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "GPL-3.0-or-later"
-version = "2.0.0"
+version = "2.0.1"
 repository = "https://github.com/paulkiernan/hack-the-gibson"
 homepage = "https://paulkiernan.github.io/hack-the-gibson/"
 

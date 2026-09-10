@@ -45,10 +45,10 @@ python3 -m http.server 8080
 
 Prebuilt downloads for every host are attached to the
 [Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest).
-A release is published whenever a tag matching `v*` is pushed; the workspace
-version is 2.0.0, so that tag is `v2.0.0`. If nothing is published yet, or
-you want the tip of `main`, every host still builds from source — see
-[Building](#building).
+A release is published whenever a tag matching `v*` is pushed, and the tag
+always matches the workspace version in `Cargo.toml` (the release workflow
+refuses to build if it does not). If you want the tip of `main` instead, every
+host builds from source — see [Building](#building).
 
 Each release carries the same six assets:
 
