@@ -26,13 +26,20 @@ final class GibsonSaverView: ScreenSaverView {
                                     category: "GibsonSaverView")
 
     /// Posted on the process's default center whenever a view starts
-    /// animating; older hidden instances use it to lame-duck themselves.
+    /// animating; older detached instances use it to lame-duck themselves.
     private static let newInstanceNotification =
         Notification.Name("org.hackthegibson.TheGibson.NewInstance")
+    /// `userInfo` key carrying the poster's [`instanceToken`].
+    private static let tokenKey = "instance-token"
     /// App-wide self-terminate timer: the host process lingers forever, so the
     /// saver quits itself once it has been stopped for a while. One timer for
     /// the process (termination is process-wide); a new start cancels it.
     private static var terminateTimer: Timer?
+
+    /// Unique per view instance. Carried in the NewInstance notification so an
+    /// observer can never mistake its own announcement for somebody else's
+    /// (identity, not occlusion timing, decides who retires).
+    private let instanceToken = UUID()
 
     private var gibsonHandle: UnsafeMutableRawPointer?
     private var displayLink: CADisplayLink?
@@ -42,6 +49,11 @@ final class GibsonSaverView: ScreenSaverView {
     /// Logical (point) size and effective scale last handed to the renderer.
     private var lastLogicalSize = CGSize.zero
     private var lastScale: CGFloat = 0
+    /// Next wall-clock second at which the render loop logs honest frame
+    /// counters, plus the last values reported.
+    private var nextStatsLog: CFAbsoluteTime = 0
+    private var lastPresented: UInt64 = 0
+    private var lastSkipped: UInt64 = 0
 
     // MARK: - Init / layer
 
@@ -87,8 +99,11 @@ final class GibsonSaverView: ScreenSaverView {
         guard gibsonHandle == nil else { return }
         Self.log.info("startAnimation (preview=\(self.isPreview))")
         startEngine()
-        // Newest instance wins: older lingering views stop when they see this.
-        NotificationCenter.default.post(name: Self.newInstanceNotification, object: self)
+        // Announce after the engine is up so older detached copies retire. The
+        // token identifies the author: every observer (this one included)
+        // ignores a notification it authored.
+        NotificationCenter.default.post(name: Self.newInstanceNotification, object: self,
+                                        userInfo: [Self.tokenKey: instanceToken])
     }
 
     override func stopAnimation() {
@@ -114,21 +129,31 @@ final class GibsonSaverView: ScreenSaverView {
         scheduleTerminateIfNeeded()
     }
 
-    /// A newer instance started in this process. If this view is not on screen
-    /// anymore it is a lingering copy: stop rendering, drop the GPU resources,
-    /// and leave the hierarchy. A view that is still visible (another display,
-    /// the System Settings tile) keeps running.
+    /// A newer instance started in this process. Retire only if this view is a
+    /// lingering copy — one the host has detached (no window, or a window that
+    /// is no longer visible). Identity does the deciding: a view never retires
+    /// itself, and a view still showing on screen (another display, the System
+    /// Settings tile) keeps running even though a newer one exists.
     @objc private func handleNewInstance(_ note: Notification) {
-        guard let poster = note.object as AnyObject?, poster !== self else { return }
-        guard !isEffectivelyVisible else { return }
-        Self.log.info("newer instance started; stopping this lingering view")
+        if let token = note.userInfo?[Self.tokenKey] as? UUID, token == instanceToken {
+            return
+        }
+        if (note.object as AnyObject?) === self {
+            return
+        }
+        guard isLingering else { return }
+        Self.log.info("newer instance started; retiring this detached view")
         stopEngine()
         removeFromSuperview()
     }
 
-    private var isEffectivelyVisible: Bool {
-        guard let window else { return false }
-        return window.occlusionState.contains(.visible)
+    /// True when the host has detached this view: no window, or a window that
+    /// is no longer visible. This is a lifecycle fact, not an occlusion
+    /// heuristic — a view only microseconds into `startAnimation` is not
+    /// "detached", it is simply new.
+    private var isLingering: Bool {
+        guard let window else { return true }
+        return !window.isVisible
     }
 
     // MARK: - Engine
@@ -199,6 +224,12 @@ final class GibsonSaverView: ScreenSaverView {
         let link = displayLink(target: self, selector: #selector(renderTick(_:)))
         link.add(to: .main, forMode: .common)
         displayLink = link
+        // First honest counter line shortly after start, then every 5 s: the
+        // display-link callback count is not evidence that anything was drawn,
+        // so report (presented, skipped) from the renderer itself.
+        nextStatsLog = CACurrentMediaTime() + 2
+        lastPresented = 0
+        lastSkipped = 0
         Self.log.info("render loop started")
     }
 
@@ -209,7 +240,6 @@ final class GibsonSaverView: ScreenSaverView {
 
     @objc private func renderTick(_ link: CADisplayLink) {
         guard let handle = gibsonHandle else { return }
-        guard isEffectivelyVisible else { return }
         let code = gibson_frame(handle, CACurrentMediaTime())
         if code == 0 {
             frameFailures = 0
@@ -218,14 +248,45 @@ final class GibsonSaverView: ScreenSaverView {
                 lastStatusLog = framesRendered
                 Self.log.info("rendered \(self.framesRendered) frames, no failures")
             }
+        } else {
+            frameFailures += 1
+            Self.log.error("gibson_frame failed (\(code)), failure \(self.frameFailures)")
+            if frameFailures >= 10 {
+                Self.log.error("stopping after \(self.frameFailures) consecutive frame failures")
+                stopEngine()
+                return
+            }
+        }
+        logFrameStats(handle: handle)
+    }
+
+    /// Periodic evidence that pixels are actually being presented, taken from
+    /// the renderer's own counters (a callback that skipped a frame is not a
+    /// rendered frame).
+    private func logFrameStats(handle: UnsafeMutableRawPointer) {
+        let now = CACurrentMediaTime()
+        guard now >= nextStatsLog else { return }
+        nextStatsLog = now + 5
+        var presented: UInt64 = 0
+        var skipped: UInt64 = 0
+        let code = gibson_present_stats(handle, &presented, &skipped)
+        guard code == 0 else {
+            Self.log.error("gibson_present_stats failed (\(code))")
             return
         }
-        frameFailures += 1
-        Self.log.error("gibson_frame failed (\(code)), failure \(self.frameFailures)")
-        if frameFailures >= 10 {
-            Self.log.error("stopping after \(self.frameFailures) consecutive frame failures")
-            stopEngine()
-        }
+        let deltaPresented = presented - lastPresented
+        let deltaSkipped = skipped - lastSkipped
+        lastPresented = presented
+        lastSkipped = skipped
+        // Window state is reported, never used as a gate: it tells a black
+        // screen apart from a slow one (a window the WindowServer does not
+        // scan out yields no Metal drawables, so every frame is skipped).
+        let windowVisible = window?.isVisible ?? false
+        let windowOnScreen = window?.occlusionState.contains(.visible) ?? false
+        let line = "frames presented=\(deltaPresented) skipped=\(deltaSkipped) "
+            + "(total presented=\(presented)) windowVisible=\(windowVisible) "
+            + "windowOnScreen=\(windowOnScreen)"
+        Self.log.info("\(line, privacy: .public)")
     }
 
     // MARK: - Sizing

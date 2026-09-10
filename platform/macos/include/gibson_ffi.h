@@ -50,6 +50,12 @@ void gibson_resize(void *handle, uint32_t width, uint32_t height, float scale);
 // and present one frame. Returns 0 on success; see codes above.
 int32_t gibson_frame(void *handle, double time_seconds);
 
+// Read the renderer's frame counters: *presented counts frames actually
+// presented to the surface, *skipped counts frames dropped because the
+// surface was occluded/busy (a display-link callback that skipped a frame is
+// not a rendered frame). Returns 0 on success; 6 = null output pointer.
+int32_t gibson_present_stats(void *handle, uint64_t *presented, uint64_t *skipped);
+
 // Destroy the instance and free the handle. Null, unknown, or already
 // destroyed handle: logged no-op. Do not use the handle afterwards.
 void gibson_destroy(void *handle);

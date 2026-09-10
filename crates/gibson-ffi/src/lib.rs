@@ -56,6 +56,8 @@ pub const FRAME_ERR_PANIC: i32 = 3;
 pub const FRAME_ERR_STALE_HANDLE: i32 = 4;
 /// `gibson_frame` return code: a nested call while another was in flight.
 pub const FRAME_ERR_BUSY: i32 = 5;
+/// `gibson_present_stats` return code: an output pointer was null.
+pub const FRAME_ERR_NULL_OUT: i32 = 6;
 
 /// Magic tag every live handle slot carries ("GIBS"); cheap corruption check
 /// on top of registry membership.
@@ -403,6 +405,53 @@ fn frame_inner(handle: *mut c_void, time_seconds: f64) -> i32 {
             FRAME_ERR_RENDER
         }
     }
+}
+
+/// Read the renderer's frame counters: `*presented` counts frames actually
+/// presented to the surface, `*skipped` counts frames dropped because the
+/// surface was occluded/busy (so a display-link callback that skipped a frame
+/// is not counted as a rendered frame). Returns 0 on success; see the
+/// `FRAME_*` constants (6 = null output pointer).
+///
+/// # Safety
+/// `handle` must come from [`gibson_create`] and not yet be destroyed (or be
+/// null); `presented` and `skipped` must be valid writable `u64*`. Must run on
+/// the main thread, not reentrantly.
+#[no_mangle]
+pub extern "C" fn gibson_present_stats(
+    handle: *mut c_void,
+    presented: *mut u64,
+    skipped: *mut u64,
+) -> i32 {
+    install_os_logger();
+    match catch_unwind(AssertUnwindSafe(|| present_stats_inner(handle, presented, skipped))) {
+        Ok(code) => code,
+        Err(payload) => {
+            report_panic("gibson_present_stats", &*payload);
+            FRAME_ERR_PANIC
+        }
+    }
+}
+
+fn present_stats_inner(handle: *mut c_void, presented: *mut u64, skipped: *mut u64) -> i32 {
+    if presented.is_null() || skipped.is_null() {
+        report_error("gibson_present_stats", "null output pointer");
+        return FRAME_ERR_NULL_OUT;
+    }
+    let guard = match acquire_slot(handle, "gibson_present_stats") {
+        Ok(guard) => guard,
+        Err(code) => return code,
+    };
+    // SAFETY: exclusive access is guaranteed by the busy handshake; the guard
+    // releases it on drop.
+    let gibson = unsafe { &(*guard.slot_ptr()).gibson };
+    let (frames, dropped) = gibson.present_stats();
+    // SAFETY: the caller promises valid writable pointers.
+    unsafe {
+        *presented = frames;
+        *skipped = dropped;
+    }
+    FRAME_OK
 }
 
 /// Destroy the instance and free the handle. Null, unknown, or already
