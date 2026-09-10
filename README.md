@@ -96,18 +96,26 @@ shasum -a 256 -c --ignore-missing SHA256SUMS
 unzip Gibson.saver.zip
 cp -R Gibson.saver "$HOME/Library/Screen Savers/"
 
+# macOS quarantines browser downloads and then refuses to load the ad-hoc
+# signed bundle, so clear the flag on the installed copy and its contents:
+xattr -dr com.apple.quarantine "$HOME/Library/Screen Savers/Gibson.saver"
+
 # Make the running screen-saver process pick up the new bundle:
 killall legacyScreenSaver 2>/dev/null || true
 ```
 
 Then pick **The Gibson** in System Settings > Wallpaper > Screen Saver.
-`make install-saver` does those same steps for a build from source.
+`make install-saver` does the same copy-and-restart steps for a build from
+source, where no quarantine step is needed because nothing was downloaded.
 
-**Gatekeeper note:** the bundle is ad-hoc signed and not notarized. If macOS
-refuses the downloaded copy the first time, right-click `Gibson.saver` and
-choose Open, or approve it in System Settings > Privacy & Security, and copy
-it into `~/Library/Screen Savers/` yourself. The `SHA256SUMS` file shipped
-next to the zip lets you verify the download before you do any of that.
+**Gatekeeper note:** the bundle is ad-hoc signed but not notarized, so the
+`xattr -dr` line above is what makes it load — without it macOS leaves the
+bundle quarantined and the screen saver simply never draws, because a
+`.saver` is loaded inside the screen-saver process rather than launched as
+an app (there is no "open anyway" dialog and no Privacy & Security prompt
+for it). Stripping the attribute clears the quarantine only; the ad-hoc
+signature still verifies afterwards. Verify the download against
+`SHA256SUMS` before installing it.
 
 Remove it with `make uninstall-saver`, or by deleting the bundle from
 `~/Library/Screen Savers/`.
@@ -187,11 +195,12 @@ each unpacks into a directory holding `gibson-app`:
 
 ```bash
 tar -xzf hack-the-gibson-macos-universal.tar.gz
-./hack-the-gibson-macos-universal/gibson-app
 
-# If macOS refuses to run the downloaded binary (quarantine), either
-# right-click it and choose Open, or clear the flag:
+# macOS quarantines the tarball on download and the binary is not
+# notarized, so clear the flag before running it:
 xattr -d com.apple.quarantine hack-the-gibson-macos-universal/gibson-app
+
+./hack-the-gibson-macos-universal/gibson-app
 ```
 
 Or run it from source:

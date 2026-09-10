@@ -227,7 +227,7 @@ jobs:
 
           | Asset | Platform | How to use it |
           | --- | --- | --- |
-          | `Gibson.saver.zip` | macOS 14+ | Screen saver, universal (Apple silicon + Intel). Unzip it, then double-click `Gibson.saver` to install it. |
+          | `Gibson.saver.zip` | macOS 14+ | Screen saver, universal (Apple silicon + Intel). Unzip it, copy the bundle to `~/Library/Screen Savers/`, then clear its quarantine flag - see below. |
           | `hack-the-gibson-macos-universal.tar.gz` | macOS 14+ | Windowed desktop app, universal. Untar it and run `hack-the-gibson-macos-universal/gibson-app`. |
           | `Gibson.scr` | Windows | Screen saver. Save it, then right-click it and choose Install. |
           | `hack-the-gibson-linux-x86_64.tar.gz` | Linux x86_64 | Desktop app, plus the xscreensaver hack with its `gibson.xml` descriptor. See `README.txt` inside. |
@@ -236,14 +236,35 @@ jobs:
           Check the download before running anything:
 
           ```sh
-          shasum -a 256 -c SHA256SUMS    # macOS
-          sha256sum -c SHA256SUMS        # Linux
+          shasum -a 256 -c --ignore-missing SHA256SUMS    # macOS
+          sha256sum -c --ignore-missing SHA256SUMS        # Linux
           ```
 
-          **macOS:** the screen saver and the desktop app are ad-hoc signed but not notarized, so
-          Gatekeeper refuses the first launch. Right-click the app (or the `Gibson.saver` bundle) and
-          choose Open, or approve it once under System Settings > Privacy & Security. To install the
-          screen saver by hand, copy it to `~/Library/Screen Savers/`.
+          `--ignore-missing` verifies whichever assets you actually downloaded, and still fails if none
+          of them match. Drop it for a hard failure on anything absent.
+
+          **macOS:** neither the screen saver nor the desktop app is notarized, so macOS quarantines a
+          downloaded copy. A quarantined `.saver` is worse than a blocked app: it appears in the list
+          and then silently never draws, because a screen saver is loaded inside the system's
+          screen-saver process rather than launched as an app, so there is no Open-anyway dialog and no
+          Privacy & Security prompt for it. The flag lands on nested files as well, so clearing it
+          non-recursively is not enough:
+
+          ```sh
+          unzip Gibson.saver.zip
+          cp -R Gibson.saver "$HOME/Library/Screen Savers/"
+          xattr -dr com.apple.quarantine "$HOME/Library/Screen Savers/Gibson.saver"
+          killall legacyScreenSaver 2>/dev/null || true
+          ```
+
+          Then choose "The Gibson" under System Settings > Wallpaper > Screen Saver. For the desktop
+          app, clear the flag on the extracted binary before the first run:
+
+          ```sh
+          xattr -d com.apple.quarantine hack-the-gibson-macos-universal/gibson-app
+          ```
+
+          Clearing the attribute does not affect the code signature.
 
           The Windows and Linux hosts are compile-verified in CI on every release but have not been
           run on real hardware yet.
@@ -339,6 +360,15 @@ jobs:
               *) echo "::error::gibson-app has no $arch slice (found: $archs)"; exit 1 ;;
             esac
           done
+          # lipo does not carry a per-slice signature onto the combined file, so
+          # the fat binary fails `codesign -v`: the arm64 slice is only
+          # linker-signed and the x86_64 slice is not signed at all. Re-sign the
+          # result ad-hoc, the same treatment platform/macos/Makefile gives the
+          # .saver. The app runs either way, but without this the shipped binary
+          # is unverifiable, and the check below makes a signing failure fatal
+          # rather than something nobody notices until a downloader runs it.
+          codesign --force --sign - --timestamp=none "$stage/gibson-app"
+          codesign -v "$stage/gibson-app"
           cp GPL.txt "$stage/GPL.txt"
           cat > "$stage/README.txt" <<'EOF'
           Hack the Gibson - macOS desktop app
@@ -349,10 +379,13 @@ jobs:
           gibson-app --help          list every option
           gibson-app --fullscreen    fullscreen flythrough; Esc or Q quits
 
-          This binary is universal (Apple silicon + Intel). It is ad-hoc signed
-          but not notarized, so Gatekeeper refuses the first launch: right-click
-          gibson-app and choose Open, or approve it once under
-          System Settings > Privacy & Security.
+          This binary is universal (Apple silicon + Intel). It is not notarized,
+          so macOS quarantines a downloaded copy and refuses to run it. Clear
+          the flag on the extracted binary before the first run:
+
+            xattr -d com.apple.quarantine gibson-app
+
+          Clearing the attribute does not affect the code signature.
 
           Settings live in
             ~/Library/Application Support/hack-the-gibson/gibson.toml
