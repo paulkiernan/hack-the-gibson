@@ -1,5 +1,5 @@
 //! Gibson world simulation: flight path, camera, tower city, lane pulses, face-block highlights,
-//! and palette state. [`Scene`] advances the whole sim with [`Scene::update`] and exposes the
+//! and the siege spread. [`Scene`] advances the whole sim with [`Scene::update`] and exposes the
 //! per-frame render slice with [`Scene::frame`].
 
 use gibson_types::{
@@ -10,8 +10,8 @@ mod camera;
 mod city;
 mod flight_path;
 mod highlights;
-mod palette_state;
 mod pulses;
+mod siege;
 
 pub use flight_path::FlightPath;
 
@@ -19,6 +19,7 @@ use camera::CameraRig;
 use city::{City, Visible};
 use highlights::Highlights;
 use pulses::PulsePool;
+use siege::SiegeSpread;
 
 /// Tower city and flight state. Fixed per-frame API (signatures frozen in Batch 0):
 /// [`Scene::update`] advances to an absolute `time`, [`Scene::frame`] borrows the resulting
@@ -44,8 +45,12 @@ pub struct Scene {
     /// Reused instance buffers handed to `frame`.
     tower_buf: Vec<TowerInstance>,
     pulse_buf: Vec<PulseInstance>,
-    /// Palette computed by the last `update`.
-    palette: Palette,
+    /// Per-tower siege onsets (rebuilt with the city).
+    siege: SiegeSpread,
+    /// Palette the lane pulses are composed against this frame: the frame's `NORMAL` blended
+    /// toward `SIEGE` by the wave's progress, so beams warm and cool with the siege. Towers are
+    /// *not* baked against this — the renderer mixes each one by `TowerInstance::siege_t`.
+    pulse_palette: Palette,
 }
 
 impl Scene {
@@ -62,6 +67,7 @@ impl Scene {
         // Per-tower clearance caps are flight-path geometry: built once per city, never per
         // frame (grid changes in `update` rebuild and re-cap identically).
         city.cap_heights(&path);
+        let siege = SiegeSpread::new(&city, seed);
         Scene {
             seed,
             path,
@@ -74,7 +80,8 @@ impl Scene {
             visible: Vec::with_capacity(4096),
             tower_buf: Vec::with_capacity(4096),
             pulse_buf: Vec::new(),
-            palette: Palette::NORMAL,
+            siege,
+            pulse_palette: Palette::NORMAL,
         }
     }
 
@@ -105,6 +112,8 @@ impl Scene {
             self.city = City::new(settings.grid, self.seed);
             // Same one-time flight-path cap as `Scene::new` (never per frame).
             self.city.cap_heights(&self.path);
+            // The siege wave is laid out over the city's geometry, so it is rebuilt with it.
+            self.siege = SiegeSpread::new(&self.city, self.seed);
             self.pulses.set_grid(settings.grid);
         }
         self.pulses.resize(pulse_count(&settings));
@@ -113,9 +122,13 @@ impl Scene {
         self.rig.advance(dt, &settings, &self.path);
         let pose = self.rig.camera();
 
-        // 2. Palette for this frame (resolved before the pulses below are composed, so each
-        //    beam's stored hue index recolors against the palette actually in effect).
-        self.palette = palette_state::palette(settings.palette, time, settings.palette_cycle_seconds);
+        // 2. Siege wave for this frame: how far it has travelled, and the per-tower ramp width
+        //    under this mode / cycle period (resolved before the pulses below are composed, so
+        //    each beam's stored hue index recolors against the palette actually in effect).
+        let wave = self
+            .siege
+            .wave(settings.palette, time, settings.palette_cycle_seconds);
+        self.pulse_palette = Palette::NORMAL.lerp(&Palette::SIEGE, wave.progress);
 
         // 3. Cull + sort the towers back-to-front for this pose.
         self.city.cull(&pose, &mut self.visible);
@@ -123,7 +136,8 @@ impl Scene {
         // 4. Highlights: expire finished sweeps, pick new ones from the visible set.
         self.highlights.update(time, &pose, &self.city, &self.visible);
 
-        // 5. Compose the tower instances (highlight envelope applied to visible towers only).
+        // 5. Compose the tower instances (highlight envelope and siege blend applied to visible
+        //    towers only; both are keyed to the tower's grid index, so culling cannot lose them).
         self.tower_buf.clear();
         for v in &self.visible {
             let tower = self.city.tower(v.index);
@@ -138,13 +152,14 @@ impl Scene {
                 // Per-tower height: random biased-tall base capped below the flight path where
                 // the camera overflies the footprint (see `City::cap_heights`).
                 height: tower.height,
+                siege_t: self.siege.siege_t(v.index, wave),
             });
         }
 
         // 6. Animate the lane pulses and compose their instances.
         self.pulses.advance(dt);
         self.pulse_buf.clear();
-        self.pulses.write_instances(&self.palette, &mut self.pulse_buf);
+        self.pulses.write_instances(&self.pulse_palette, &mut self.pulse_buf);
     }
 
     /// Current camera pose.
@@ -158,7 +173,11 @@ impl Scene {
             time: self.time,
             camera: self.rig.camera(),
             prev_camera: self.rig.prev_camera(),
-            palette: self.palette,
+            // The frame palette is the NORMAL end of the siege blend in every mode: the siege
+            // look is entirely per tower, carried by `TowerInstance::siege_t`, and the renderer
+            // mixes `Palette::NORMAL` toward `Palette::SIEGE` itself. Blending here as well
+            // would double-apply it.
+            palette: Palette::NORMAL,
             towers: &self.tower_buf,
             pulses: &self.pulse_buf,
             settings,
@@ -189,6 +208,7 @@ fn pulse_count(settings: &Settings) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::siege::{CYCLE_TRANSITION, RAMP_SECONDS, SIEGE_DELAY};
     use gibson_types::{PaletteMode, TOWER_HEIGHT, TOWER_WIDTH};
 
     /// 32 panels each carrying block ids 1..=4, standing in for the real atlas.
@@ -204,6 +224,7 @@ mod tests {
             && a.highlight_block == b.highlight_block
             && a.highlight_t == b.highlight_t
             && a.height == b.height
+            && a.siege_t == b.siege_t
     }
 
     fn pulse_eq(a: &PulseInstance, b: &PulseInstance) -> bool {
@@ -509,43 +530,233 @@ mod tests {
         );
     }
 
-    /// Palette modes: Normal/Siege are exact; Cycle boots on NORMAL and crossfades only across
-    /// real boundaries (period, 2*period, ...), never during the first cycle.
+    /// Normal mode is untouched by the siege machinery: every emitted `siege_t` is exactly 0 at
+    /// every time, and the frame palette stays the normal end of the blend.
     #[test]
-    fn cycle_palette_crossfades() {
-        // Cycle 0 (t in 0..10) is NORMAL from the very start: no palette switch has happened,
-        // so the first 6 s must NOT fade up from SIEGE.
-        let at_start = palette_state::palette(PaletteMode::Cycle, 0.0, 10.0);
-        assert_eq!(at_start, Palette::NORMAL);
-        // Still inside the first cycle's would-be fade window: exact NORMAL, no transition.
-        assert_eq!(
-            palette_state::palette(PaletteMode::Cycle, 3.0, 10.0),
-            Palette::NORMAL
+    fn normal_mode_never_sieges() {
+        let settings = Settings::default(); // Normal palette, grid 60.
+        let mut scene = Scene::new(&settings, 11);
+        for t in [0.0, 1.0, 5.0, 30.0, 600.0] {
+            scene.update(t, &settings);
+            let frame = scene.frame(&settings);
+            assert_eq!(frame.palette, Palette::NORMAL);
+            assert!(!frame.towers.is_empty(), "no towers visible at t={t}");
+            for tower in frame.towers {
+                assert_eq!(tower.siege_t, 0.0, "tower sieged in Normal mode at t={t}");
+            }
+        }
+    }
+
+    /// Siege mode turns towers one by one: early in the wave the city is split between towers
+    /// already red and towers still normal (that split *is* the feature), and by the end of the
+    /// sweep every tower is fully siege and stays there.
+    #[test]
+    fn siege_mode_turns_towers_one_by_one() {
+        let grid = 60u32;
+        let settings = Settings {
+            palette: PaletteMode::Siege,
+            grid,
+            ..Settings::default()
+        };
+        let mut scene = Scene::new(&settings, 11);
+        let n = grid * grid;
+        let span = scene.siege.span();
+
+        // Early: the wave is about a third of the way across the city.
+        let early = SIEGE_DELAY + 0.35 * span as f64;
+        let wave = scene.siege.wave(settings.palette, early, settings.palette_cycle_seconds);
+        let mut red = 0usize;
+        let mut normal = 0usize;
+        for idx in 0..n {
+            let s = scene.siege.siege_t(idx, wave);
+            if s > 0.99 {
+                red += 1;
+            } else if s < 0.01 {
+                normal += 1;
+            }
+        }
+        assert!(
+            red > 0 && normal > 0,
+            "at t={early:.1} the city had {red} red and {normal} normal towers, not a spread"
         );
-        // Steady state at t = 8 (past the 6 s window of cycle 0): NORMAL.
-        let steady = palette_state::palette(PaletteMode::Cycle, 8.0, 10.0);
-        assert_eq!(steady, Palette::NORMAL);
-        // t = 10 is the first real boundary: base SIEGE, but the fade has just begun (u = 0),
-        // so the palette is still exactly the outgoing NORMAL (seamless).
-        let boundary = palette_state::palette(PaletteMode::Cycle, 10.0, 10.0);
-        assert_eq!(boundary, Palette::NORMAL);
-        // t = 12: two seconds into the NORMAL -> SIEGE crossfade: strictly between.
-        let sieging = palette_state::palette(PaletteMode::Cycle, 12.0, 10.0);
-        assert!(sieging != Palette::NORMAL && sieging != Palette::SIEGE);
-        // t = 16: crossfade over, fully Siege.
-        assert_eq!(
-            palette_state::palette(PaletteMode::Cycle, 16.0, 10.0),
-            Palette::SIEGE
+        println!("siege at t={early:.1}s of a {span:.1}s sweep: {red} red, {normal} normal of {n}");
+
+        // The instances the scene actually emits carry the same split.
+        scene.update(early, &settings);
+        let frame = scene.frame(&settings);
+        assert_eq!(frame.palette, Palette::NORMAL, "Siege must hand over the normal palette");
+        assert!(
+            frame.towers.iter().any(|t| t.siege_t > 0.99),
+            "no red tower among the {} visible at t={early:.1}",
+            frame.towers.len()
         );
-        // Endpoints resolve to the exact consts.
-        assert_eq!(
-            palette_state::palette(PaletteMode::Normal, 1.0, 10.0),
-            Palette::NORMAL
+        assert!(
+            frame.towers.iter().any(|t| t.siege_t == 0.0),
+            "no normal tower among the {} visible at t={early:.1}",
+            frame.towers.len()
         );
-        assert_eq!(
-            palette_state::palette(PaletteMode::Siege, 1.0, 10.0),
-            Palette::SIEGE
-        );
+
+        // Late: the whole city is siege, and it holds for hours.
+        let late = [
+            SIEGE_DELAY + span as f64 + RAMP_SECONDS as f64,
+            120.0,
+            3600.0,
+        ];
+        for t in late {
+            scene.update(t, &settings);
+            let frame = scene.frame(&settings);
+            assert_eq!(frame.palette, Palette::NORMAL);
+            for tower in frame.towers {
+                assert!(
+                    tower.siege_t >= 0.999,
+                    "tower not fully siege at t={t}: {}",
+                    tower.siege_t
+                );
+            }
+        }
+        let wave = scene.siege.wave(settings.palette, 3600.0, settings.palette_cycle_seconds);
+        for idx in 0..n {
+            assert!(scene.siege.siege_t(idx, wave) >= 0.999, "tower {idx} not siege at t=3600");
+        }
+    }
+
+    /// Cycle mode runs the same spread on the `palette_cycle_seconds` period: the wave sweeps
+    /// in tower by tower over the first `CYCLE_TRANSITION` of a siege cycle, holds, then sweeps
+    /// back out over the first `CYCLE_TRANSITION` of the next cycle — and the frame palette
+    /// stays the normal end of the blend the whole way through.
+    #[test]
+    fn cycle_mode_sweeps_in_and_back_out() {
+        fn progress(scene: &Scene, t: f64, period: f32) -> f32 {
+            scene.siege.wave(PaletteMode::Cycle, t, period).progress
+        }
+        let period = 40.0f32;
+        let settings = Settings {
+            palette: PaletteMode::Cycle,
+            palette_cycle_seconds: period,
+            grid: 30,
+            ..Settings::default()
+        };
+        let scene = Scene::new(&settings, 11);
+        let p = period as f64;
+        let edge = CYCLE_TRANSITION * p; // 6 s of the 40 s period.
+
+        // Cycle 0 boots normal and stays there: no siege has run yet, so there is nothing to
+        // recede from.
+        for t in [0.0, 0.5 * p, p - 1e-3] {
+            assert_eq!(progress(&scene, t, period), 0.0, "cycle 0 moved at t={t}");
+        }
+        // Cycle 1 sweeps in over the first 15 % of the period, then holds at full siege.
+        assert_eq!(progress(&scene, p, period), 0.0, "siege cycle did not start from normal");
+        let half_way = progress(&scene, p + 0.5 * edge, period);
+        assert!((0.4..=0.6).contains(&half_way), "mid-sweep progress {half_way}");
+        assert_eq!(progress(&scene, p + edge, period), 1.0, "sweep did not complete");
+        assert_eq!(progress(&scene, 1.5 * p, period), 1.0, "siege did not hold");
+        assert_eq!(progress(&scene, 2.0 * p, period), 1.0, "siege dropped at the boundary");
+        // Cycle 2 sweeps back out, then holds normal; cycle 3 sieges again, cycle 4 recedes.
+        let receding = progress(&scene, 2.0 * p + 0.5 * edge, period);
+        assert!((0.4..=0.6).contains(&receding), "mid-recede progress {receding}");
+        assert_eq!(progress(&scene, 2.0 * p + edge, period), 0.0, "siege did not clear");
+        for t in [2.5 * p, 3.0 * p - 1e-3] {
+            assert_eq!(progress(&scene, t, period), 0.0, "siege returned at t={t}");
+        }
+        assert_eq!(progress(&scene, 3.0 * p + edge, period), 1.0, "second siege did not complete");
+        assert_eq!(progress(&scene, 4.0 * p + edge, period), 0.0, "second recede did not clear");
+
+        // The emitted towers follow the same timeline, and the frame palette never leaves the
+        // normal end of the blend.
+        let mut scene = scene;
+        for t in [0.0, p, p + 0.5 * edge, p + edge, 1.5 * p, 2.0 * p, 2.0 * p + edge, 3.0 * p] {
+            scene.update(t, &settings);
+            let frame = scene.frame(&settings);
+            assert_eq!(frame.palette, Palette::NORMAL, "Cycle palette left NORMAL at t={t}");
+            let cleared = progress(&scene, t, period) == 0.0;
+            let full = progress(&scene, t, period) >= 1.0;
+            for tower in frame.towers {
+                if cleared {
+                    assert_eq!(tower.siege_t, 0.0, "tower still sieged at t={t}");
+                }
+                if full {
+                    assert!(tower.siege_t >= 0.999, "tower not siege during the hold at t={t}");
+                }
+            }
+        }
+    }
+
+    /// The spread is a pure function of `(seed, grid)`: two scenes with the same seed emit
+    /// identical `siege_t` sequences, and a different seed lays the wave out differently.
+    #[test]
+    fn siege_spread_is_deterministic() {
+        let settings = Settings {
+            palette: PaletteMode::Siege,
+            ..Settings::default()
+        };
+        let mut a = Scene::new(&settings, 21);
+        let mut b = Scene::new(&settings, 21);
+        let other = Scene::new(&settings, 22);
+        let n = settings.grid * settings.grid;
+        let span = a.siege.span();
+        assert_eq!(span, b.siege.span(), "same seed, different sweep span");
+
+        let end = SIEGE_DELAY + span as f64 + RAMP_SECONDS as f64;
+        let mut differing = 0usize;
+        for step in 0..=40 {
+            let t = end * step as f64 / 40.0;
+            a.update(t, &settings);
+            b.update(t, &settings);
+            let (wa, wb) = (
+                a.siege.wave(settings.palette, t, settings.palette_cycle_seconds),
+                b.siege.wave(settings.palette, t, settings.palette_cycle_seconds),
+            );
+            let wc = other.siege.wave(settings.palette, t, settings.palette_cycle_seconds);
+            for idx in 0..n {
+                let sa = a.siege.siege_t(idx, wa);
+                assert_eq!(sa, b.siege.siege_t(idx, wb), "tower {idx} differs at t={t}");
+                if other.siege.siege_t(idx, wc) != sa {
+                    differing += 1;
+                }
+            }
+            let (fa, fb) = (a.frame(&settings), b.frame(&settings));
+            assert_eq!(fa.towers.len(), fb.towers.len(), "visible set differs at t={t}");
+            for (ta, tb) in fa.towers.iter().zip(fb.towers) {
+                assert!(tower_eq(ta, tb), "emitted tower differs at t={t}");
+            }
+        }
+        assert!(differing > 0, "a different seed produced the identical siege spread");
+    }
+
+    /// A settings grid change rebuilds the wave with the city: a stale onset table would index
+    /// out of bounds for every tower of the bigger grid, and the rebuilt wave must be the one a
+    /// fresh scene of that grid and seed builds.
+    #[test]
+    fn grid_change_rebuilds_the_siege_wave() {
+        let mut settings = Settings {
+            palette: PaletteMode::Siege,
+            grid: 8,
+            ..Settings::default()
+        };
+        let mut scene = Scene::new(&settings, 3);
+        for grid in [60u32, 8, 60] {
+            settings.grid = grid;
+            scene.update(10.0, &settings);
+            let frame = scene.frame(&settings);
+            assert!(!frame.towers.is_empty(), "nothing visible at grid {grid}");
+            for tower in frame.towers {
+                assert!((0.0..=1.0).contains(&tower.siege_t), "siege_t out of range");
+            }
+        }
+
+        // The wave carried through the rebuilds equals a fresh grid-60 scene's (same seed).
+        let fresh = Scene::new(&settings, 3);
+        assert_eq!(scene.siege.span(), fresh.siege.span());
+        let wave = scene.siege.wave(PaletteMode::Siege, 10.0, settings.palette_cycle_seconds);
+        for idx in 0..(settings.grid * settings.grid) {
+            assert_eq!(
+                scene.siege.siege_t(idx, wave),
+                fresh.siege.siege_t(idx, wave),
+                "tower {idx} of the rebuilt wave differs from a fresh one"
+            );
+            assert!((0.0..=1.0).contains(&fresh.siege.siege_t(idx, wave)));
+        }
     }
 
     /// Regression: `FlightPath::position` must not panic on the tiny-negative inputs the camera
@@ -588,11 +799,15 @@ mod tests {
         assert_eq!(path.position(-0.0f32), path.position(0.0f32));
     }
 
-    /// Performance probe: peak `update()` cost at grid 60. Real numbers come from
+    /// Performance probe: peak `update()` cost at grid 60, in Siege mode — the busiest palette
+    /// path, since every visible tower resolves its own siege blend. Real numbers come from
     /// `cargo test -p gibson-scene --release` (asserts are release-only).
     #[test]
     fn scene_update_peak_time_grid_60() {
-        let settings = Settings::default();
+        let settings = Settings {
+            palette: PaletteMode::Siege,
+            ..Settings::default()
+        };
         let mut scene = Scene::new(&settings, 99);
         scene.set_block_ids(sample_blocks());
         let mut peak = std::time::Duration::ZERO;

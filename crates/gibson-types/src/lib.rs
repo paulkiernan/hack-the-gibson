@@ -1,8 +1,11 @@
 //! Frozen shared type contracts for Hack the Gibson.
 //!
-//! This crate is the single contract every other crate compiles against. After the Scaffold
-//! batch the public signatures, constant values, and fields in this file MUST NOT change;
-//! later agents may only add doc comments.
+//! This crate is the single contract every other crate compiles against. The public
+//! signatures, constant values and fields are frozen after the Scaffold batch: they change
+//! only in a dedicated serial amendment step, never concurrently with feature work, because
+//! every other crate compiles against them. This revision carries three such amendments:
+//! per-tower siege blending ([`TowerInstance::siege_t`]), a darker normal tower body, and the
+//! widened [`FloorMap::data`] cell encoding. Everything else is unchanged.
 //!
 //! World conventions the rest of the project depends on:
 //! - Right-handed Y-up world (legacy Irrlicht was left-handed; z was negated on import).
@@ -181,11 +184,18 @@ pub struct Palette {
 impl Palette {
     /// Deep-blue Gibson: body `#0E2A6A` at ~25 % opacity, cyan text, magenta highlights,
     /// violet PCB traces on black, near-white pulses, blue haze.
+    ///
+    /// Public const, like [`Palette::SIEGE`]: the scene hands the renderer this palette (the
+    /// NORMAL end of the siege blend) and the renderer mixes each tower toward
+    /// [`Palette::SIEGE`] by [`TowerInstance::siege_t`].
     pub const NORMAL: Palette = Palette {
         // Body #0E2A6A: sRGB bytes (14,42,106) -> linear (0.004, 0.023, 0.144); previous values
         // treated the sRGB bytes as linear and were ~1.7x too bright (milk). Dark glass so text
-        // blocks pop against near-black gaps.
-        tower_body: [0.01, 0.035, 0.16, 0.25],
+        // blocks pop against near-black gaps. Deepened for the darker-blue pass: RGB scaled by
+        // ~0.62 with green trimmed a little harder so the hue sinks toward blue instead of just
+        // dimming; blue stays proportionally strongest. Alpha is deliberately untouched at 0.25
+        // (the renderer is making it height-dependent).
+        tower_body: [0.0062, 0.0203, 0.0992, 0.25],
         // Text #48E8FF converted sRGB->linear (~0.066, 0.81, 1.0); red kept a touch above the
         // film value so glyphs stay bright, green/blue carry the hue.
         tower_text: [0.10, 0.84, 0.92],
@@ -205,6 +215,11 @@ impl Palette {
     };
 
     /// Siege palette: magenta-pink body, orange-red text, ice-blue floor, warm haze.
+    ///
+    /// Public const, like [`Palette::NORMAL`]: the renderer mixes each tower's body, text and
+    /// highlight colors from [`Palette::NORMAL`] toward this palette by
+    /// [`TowerInstance::siege_t`], so a siege rolls through the city one tower at a time
+    /// rather than switching the whole skyline at once.
     pub const SIEGE: Palette = Palette {
         // Body #6A1040: sRGB bytes (106,16,64) -> linear (0.144, 0.004, 0.052). Dark magenta
         // glass (was ~2x too bright, washing everything pink) so the orange-red text reads
@@ -269,6 +284,10 @@ impl Palette {
 }
 
 /// One tower drawn this frame. GPU-ready layout; sorted back-to-front by the scene.
+///
+/// 12 four-byte scalars, packed at align 4 with no interior or trailing padding: 52 bytes.
+/// The renderer's vertex layout hard-codes these offsets (see `INST_ATTRS` in the render
+/// crate), so the layout is pinned by `instance_sizes_are_stable`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TowerInstance {
@@ -287,6 +306,11 @@ pub struct TowerInstance {
     /// This tower's actual height in world units; the renderer scales the unit box by it
     /// (`TOWER_HEIGHT_MIN..=TOWER_HEIGHT`).
     pub height: f32,
+    /// Siege blend for this tower: 0 = this tower is in the normal palette, 1 = fully siege.
+    /// The scene ramps it per tower so the siege spreads through the city one building at a
+    /// time, and the renderer mixes body, text and highlight colors between
+    /// `Palette::NORMAL` and `Palette::SIEGE` by this value.
+    pub siege_t: f32,
 }
 
 /// One lane pulse streak this frame. GPU-ready layout.
@@ -342,16 +366,75 @@ pub struct AtlasImage {
 }
 
 /// Generated PCB floor map for one toroidal tile (`FLOOR_TILE_CELLS × FLOOR_TILE_CELLS` cells).
+///
+/// One cell is a 2.5-unit square; the renderer maps world xz to cells as
+/// `floor(xz / 2.5) mod FLOOR_TILE_CELLS`, so a tile spans `FLOOR_TILE_UNITS` = 240 units and
+/// tiles seamlessly in every direction.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FloorMap {
     /// Cells per tile edge (`FLOOR_TILE_CELLS`).
     pub cells: u32,
     /// Row-major cells, z then x (`data[z * cells + x]`), 4 bytes per cell:
-    /// - R: trace half-segment bits from the cell center — bit 1 = +x, 2 = -x, 4 = +z, 8 = -z.
-    /// - G: ground feature — 0 = none, 1 = pad, 2 = via, 3 = chip body.
-    /// - B: unused (0).
+    ///
+    /// - R: direction mask of half-segments leaving the cell center. Bits 0-3 are orthogonal:
+    ///   1 = +x, 2 = -x, 4 = +z, 8 = -z. Bits 4-7 are diagonal: 16 = (+x+z), 32 = (-x+z),
+    ///   64 = (+x-z), 128 = (-x-z). The diagonals are what let a board corner at 45 degrees
+    ///   and read as a board rather than stair-stepping like a maze.
+    /// - G: feature kind - 0 = none, 1 = through-hole pad (round, drilled centre), 2 = via
+    ///   (small, drilled), 3 = IC body, 4 = SMD pad (rectangular), 5 = IC pin, 6 = copper
+    ///   pour / ground-plane fill, 7 = silkscreen mark, 8 = mounting hole. Values above 8 are
+    ///   reserved: consumers MUST treat them as 0 rather than misdrawing them.
+    /// - B: gauge and flags. Bits 0-1 = trace width class (0 thin signal, 1 medium, 2 thick
+    ///   power/ground). Bit 2 set = cell is part of a parallel bus bundle. Bit 3 set = pour is
+    ///   hatched rather than solid. Bits 4-7 are reserved and MUST be zero.
     /// - A: brightness, 128..=255.
+    ///
+    /// Continuity invariant: every set half-segment bit is mirrored in the neighbouring cell -
+    /// the mirror bit and neighbour offset for a bit come from [`floor_dir_mirror`] (or the
+    /// [`FLOOR_DIR_MIRRORS`] table), so a bit set at a cell edge always meets its counterpart
+    /// across that edge. Neighbour arithmetic wraps with `rem_euclid(cells)`, diagonals
+    /// included, which is what makes the tile toroidal.
+    ///
+    /// Tower keep-out: tower footprints are centred at cell `(6 + 12*kx, 12*kz)` for `kx, kz`
+    /// in `0..8` (grid-exact because `FLOOR_TILE_UNITS` = 8 x `TOWER_PITCH`), and the 7x7 cell
+    /// block around each centre stays completely empty so traces terminate cleanly at the
+    /// tower bases.
     pub data: Vec<[u8; 4]>,
+}
+
+/// Mirror bit and neighbour-cell offset for each direction half-segment bit of a
+/// [`FloorMap::data`] cell, indexed by bit position 0..=7.
+///
+/// Entry `i` is `(mirror_bit, dx, dz)`: the mask the cell one step along the half-segment
+/// must set, and that neighbour's cell offset in cell units (`x` is the first cell axis, `z`
+/// the second). The pairing is an involution - mirroring a mirror returns the original bit -
+/// and the mirror bit lives in the neighbour cell, which is always the mirror's own opposite
+/// direction, so the offsets negate.
+pub const FLOOR_DIR_MIRRORS: [(u8, i32, i32); 8] = [
+    (2, 1, 0),     // 1   +x   <- neighbour's 2   -x
+    (1, -1, 0),    // 2   -x   <- neighbour's 1   +x
+    (8, 0, 1),     // 4   +z   <- neighbour's 8   -z
+    (4, 0, -1),    // 8   -z   <- neighbour's 4   +z
+    (128, 1, 1),   // 16  +x+z <- neighbour's 128 -x-z
+    (64, -1, 1),   // 32  -x+z <- neighbour's 64  +x-z
+    (32, 1, -1),   // 64  +x-z <- neighbour's 32  -x+z
+    (16, -1, -1),  // 128 -x-z <- neighbour's 16  +x+z
+];
+
+/// Mirror bit and neighbour-cell offset for one direction half-segment `bit` (a single-bit
+/// mask; pass one of 1, 2, 4, 8, 16, 32, 64, 128).
+///
+/// Returns `(mirror_bit, dx, dz)`: the bit the neighbouring cell must set for the segment to
+/// be continuous, and that neighbour's offset in cells. Returns `None` when `bit` is not
+/// exactly one of the eight direction bits (0, or several bits at once), so callers cannot
+/// silently read a bogus table row. This is the single implementation of the continuity
+/// pairing that both the floor generator and the renderer share.
+pub const fn floor_dir_mirror(bit: u8) -> Option<(u8, i32, i32)> {
+    if bit.count_ones() != 1 {
+        return None;
+    }
+    let (mirror, dx, dz) = FLOOR_DIR_MIRRORS[bit.trailing_zeros() as usize];
+    Some((mirror, dx, dz))
 }
 
 /// Everything the renderer needs to draw one frame. Borrowed from the scene.
@@ -363,7 +446,12 @@ pub struct FrameData<'a> {
     pub camera: CameraPose,
     /// Previous frame's camera pose (motion blur reprojection).
     pub prev_camera: CameraPose,
-    /// Active color palette.
+    /// Active color palette, and the NORMAL end of the siege blend: in `PaletteMode::Normal`
+    /// it is [`Palette::NORMAL`], and in `PaletteMode::Siege` / `PaletteMode::Cycle` it stays
+    /// [`Palette::NORMAL`] while each tower's [`TowerInstance::siege_t`] selects how far that
+    /// tower has travelled toward [`Palette::SIEGE`]. The renderer therefore needs both
+    /// palettes at once (`Palette::NORMAL` and `Palette::SIEGE` are public consts), not just
+    /// one pre-blended result.
     pub palette: Palette,
     /// Visible towers, sorted back-to-front, frustum + fog culled.
     pub towers: &'a [TowerInstance],
@@ -526,12 +614,66 @@ mod tests {
     #[test]
     fn instance_sizes_are_stable() {
         // GPU instance buffers are sized from these; the layout is part of the frozen contract.
-        // TowerInstance keeps its historical 48 bytes with `height` replacing the old `_pad`.
-        assert_eq!(std::mem::size_of::<TowerInstance>(), 48);
+        // TowerInstance keeps its historical 48 bytes with `height` replacing the old `_pad`,
+        // plus 4 for the per-tower `siege_t` blend.
+        assert_eq!(std::mem::size_of::<TowerInstance>(), 52);
         // PulseInstance grows from 32 to 48 bytes with the added glow color.
         assert_eq!(std::mem::size_of::<PulseInstance>(), 48);
         assert_eq!(std::mem::align_of::<TowerInstance>(), 4);
         assert_eq!(std::mem::align_of::<PulseInstance>(), 4);
+    }
+
+    #[test]
+    fn tower_instance_offsets_leave_no_padding() {
+        // The renderer's vertex attributes address these offsets directly, so a padding byte
+        // sneaking in at 52 bytes would silently misread every tower. Every field starts
+        // exactly where the previous one ends, and the last one ends flush at 52.
+        use std::mem::offset_of;
+        assert_eq!(offset_of!(TowerInstance, position), 0);
+        assert_eq!(offset_of!(TowerInstance, anim_phase), 12);
+        assert_eq!(offset_of!(TowerInstance, face_layers), 16);
+        assert_eq!(offset_of!(TowerInstance, top_layer), 32);
+        assert_eq!(offset_of!(TowerInstance, highlight_block), 36);
+        assert_eq!(offset_of!(TowerInstance, highlight_t), 40);
+        assert_eq!(offset_of!(TowerInstance, height), 44);
+        assert_eq!(offset_of!(TowerInstance, siege_t), 48);
+        assert_eq!(
+            offset_of!(TowerInstance, siege_t) + 4,
+            std::mem::size_of::<TowerInstance>()
+        );
+    }
+
+    #[test]
+    fn floor_dir_mirror_pairs_every_direction_with_its_neighbour() {
+        // The floor generator and the renderer both read this pairing; if they disagreed about
+        // which bit mirrors which, traces would tear apart at cell edges. The expected offsets
+        // come straight from the documented bit values, not from the table under test.
+        let bits: [u8; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
+        let steps: [(i32, i32); 8] = [
+            (1, 0),   // 1   +x
+            (-1, 0),  // 2   -x
+            (0, 1),   // 4   +z
+            (0, -1),  // 8   -z
+            (1, 1),   // 16  +x+z
+            (-1, 1),  // 32  -x+z
+            (1, -1),  // 64  +x-z
+            (-1, -1), // 128 -x-z
+        ];
+        for (i, &bit) in bits.iter().enumerate() {
+            let (mirror, dx, dz) = floor_dir_mirror(bit).expect("single direction bit");
+            assert_eq!(FLOOR_DIR_MIRRORS[i], (mirror, dx, dz), "row for bit {bit}");
+            assert_eq!((dx, dz), steps[i], "bit {bit} neighbour offset");
+            assert_ne!(mirror, bit, "a direction cannot mirror itself");
+            // Involution: the neighbour's mirror is this bit, one step back.
+            assert_eq!(floor_dir_mirror(mirror), Some((bit, -dx, -dz)), "bit {bit}");
+        }
+        // Concrete pins: an orthogonal pair and a diagonal pair.
+        assert_eq!(floor_dir_mirror(2), Some((1, -1, 0)));
+        assert_eq!(floor_dir_mirror(16), Some((128, 1, 1)));
+        // Anything that is not exactly one direction bit has no pairing.
+        assert_eq!(floor_dir_mirror(0), None);
+        assert_eq!(floor_dir_mirror(3), None);
+        assert_eq!(floor_dir_mirror(255), None);
     }
 
     #[test]

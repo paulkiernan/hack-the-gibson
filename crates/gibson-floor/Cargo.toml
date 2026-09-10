@@ -1,6 +1,6 @@
 [package]
 name = "gibson-floor"
-description = "Hack the Gibson PCB floor-map generator: Manhattan traces, vias, pads, and chips on a toroidal cell grid."
+description = "Hack the Gibson PCB floor-map generator: 45-degree routing, bus bundles, component footprints, power rails and copper pours on a toroidal cell grid."
 edition.workspace = true
 license.workspace = true
 version.workspace = true

@@ -23,13 +23,23 @@ pub struct SceneTargets {
     pub view_b: wgpu::TextureView,
     pub depth: wgpu::Texture,
     pub depth_view: wgpu::TextureView,
+    /// Composite output for the CRT pass to reconstruct. Present only when the CRT pass is
+    /// active (the scene then renders at the signal resolution and this texture matches it).
+    pub signal: Option<wgpu::Texture>,
+    pub signal_view: Option<wgpu::TextureView>,
     pub width: u32,
     pub height: u32,
 }
 
 impl SceneTargets {
-    /// Create (or recreate) the HDR color pair plus depth at `width x height`.
-    pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Result<SceneTargets, RenderError> {
+    /// Create (or recreate) the HDR color pair plus depth at `width x height`, and -- when
+    /// `signal` is set -- the composite's signal buffer for the CRT pass at the same size.
+    pub fn new(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        signal: bool,
+    ) -> Result<SceneTargets, RenderError> {
         let color_usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
         let mk = |label: &str| {
             device.create_texture(&wgpu::TextureDescriptor {
@@ -49,6 +59,13 @@ impl SceneTargets {
         };
         let color_a = mk("gibson-hdr-a");
         let color_b = mk("gibson-hdr-b");
+        let (signal_tex, signal_view) = if signal {
+            let tex = mk("gibson-hdr-signal");
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            (Some(tex), Some(view))
+        } else {
+            (None, None)
+        };
         let depth = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gibson-depth"),
             size: wgpu::Extent3d {
@@ -73,6 +90,8 @@ impl SceneTargets {
             color_a,
             color_b,
             depth,
+            signal: signal_tex,
+            signal_view,
             width,
             height,
         })

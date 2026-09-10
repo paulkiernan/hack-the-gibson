@@ -16,9 +16,9 @@ struct TowerVertex {
 
 const GEOM_ATTRS: [wgpu::VertexAttribute; 3] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32, 2 => Float32x2];
-// Explicit offsets: `TowerInstance` is 48 bytes packed position(0) anim_phase(12)
-// face_layers(16) top_layer(32) highlight_block(36) highlight_t(40) height(44).
-const INST_ATTRS: [wgpu::VertexAttribute; 7] = [
+// Explicit offsets: `TowerInstance` is 52 bytes packed position(0) anim_phase(12)
+// face_layers(16) top_layer(32) highlight_block(36) highlight_t(40) height(44) siege_t(48).
+const INST_ATTRS: [wgpu::VertexAttribute; 8] = [
     wgpu::VertexAttribute {
         format: wgpu::VertexFormat::Float32x3,
         offset: 0,
@@ -54,7 +54,27 @@ const INST_ATTRS: [wgpu::VertexAttribute; 7] = [
         offset: 44,
         shader_location: 9, // height (actual tower height in world units)
     },
+    wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32,
+        offset: 48,
+        shader_location: 10, // siege_t (0 = normal palette, 1 = fully siege)
+    },
 ];
+
+// `INST_ATTRS` hard-codes the contract's byte offsets and the stride is
+// `size_of::<TowerInstance>()`; a contract change that moved either must fail the build here
+// rather than silently misdraw the skyline.
+const _: () = {
+    assert!(std::mem::size_of::<TowerInstance>() == 52);
+    assert!(std::mem::offset_of!(TowerInstance, position) == 0);
+    assert!(std::mem::offset_of!(TowerInstance, anim_phase) == 12);
+    assert!(std::mem::offset_of!(TowerInstance, face_layers) == 16);
+    assert!(std::mem::offset_of!(TowerInstance, top_layer) == 32);
+    assert!(std::mem::offset_of!(TowerInstance, highlight_block) == 36);
+    assert!(std::mem::offset_of!(TowerInstance, highlight_t) == 40);
+    assert!(std::mem::offset_of!(TowerInstance, height) == 44);
+    assert!(std::mem::offset_of!(TowerInstance, siege_t) == 48);
+};
 
 /// Geometry vertex attribute layout (buffer 0, per-vertex).
 fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {

@@ -7,8 +7,17 @@
 //! 3. additive lane pulse ribbons,
 //! 4. bloom (prefilter + 13-tap down + 3x3 tent up; skipped at `bloom == 0`),
 //! 5. motion blur by depth reprojection (skipped at `motion_blur == 0`),
-//! 6. composite (ACES, chromatic aberration, grain, vignette, optional CRT overlay scaled by
-//!    `settings.crt`) to the surface or an offscreen sRGB texture (`render_to_rgba`).
+//! 6. composite (ACES, chromatic aberration, grain, vignette) into the final target -- or, when
+//!    the CRT pass is active, into a signal-resolution HDR texture,
+//! 7. the CRT pass (Lottes scanline emulation) reconstructs that signal onto the final target at
+//!    full output resolution.
+//!
+//! Steps 1-6 run at the *scene* size: the output size, unless `settings.crt > 0`, in which case
+//! they run at a smaller signal resolution and step 7 expands it. That split is what makes the
+//! CRT real -- nearest-fetch signal reconstruction and an output-pixel-scale phosphor mask are
+//! only both correct when the emulated raster is a different, lower resolution than the display.
+//! `crt = 0` keeps the scene at the output size and skips step 7 entirely (byte-identical to the
+//! plain composite).
 //!
 //! WebGL2 constraints every pipeline in this crate respects: no storage buffers, no compute
 //! shaders, one uniform buffer <= 16 KiB per binding, per-instance data via instance-step vertex
@@ -35,6 +44,8 @@ pub mod shaders {
     pub const MOTION_BLUR: &str = include_str!("shaders/motion_blur.wgsl");
     /// Final composite: tonemap, chromatic aberration, grain, vignette.
     pub const COMPOSITE: &str = include_str!("shaders/composite.wgsl");
+    /// CRT emulation (Timothy Lottes' public-domain scanline shader) from the signal buffer.
+    pub const CRT: &str = include_str!("shaders/crt.wgsl");
 }
 
 mod bloom;
@@ -98,6 +109,12 @@ pub struct Renderer {
     width: u32,
     height: u32,
     scale: f32,
+    /// Size the HDR chain renders at: `(width, height)` unless the CRT pass is active, in which
+    /// case it is `scene_size(..)` -- the CRT signal resolution.
+    render_width: u32,
+    render_height: u32,
+    /// CRT amount of the last frame, so a resize rebuilds the chain at the right signal size.
+    crt: f32,
 
     // Shared scene bindings: uniform + atlas + floor + samplers.
     scene_bgl: wgpu::BindGroupLayout,
@@ -119,6 +136,8 @@ pub struct Renderer {
     motion_bg: wgpu::BindGroup,
     composite_a_bg: wgpu::BindGroup,
     composite_b_bg: wgpu::BindGroup,
+    /// CRT pass bind group (uniform + signal buffer); `None` while the CRT pass is inactive.
+    crt_bg: Option<wgpu::BindGroup>,
 
     /// Previous-frame view-projection matrix for motion-blur reprojection.
     prev_view_proj: Mat4,
@@ -143,6 +162,40 @@ fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
     (
         ((width as f32) * scale).round().max(1.0) as u32,
         ((height as f32) * scale).round().max(1.0) as u32,
+    )
+}
+
+/// Signal resolution of the CRT path as a fraction of the output.
+///
+/// A CRT is a raster display: the picture exists as a signal with a fixed number of lines and the
+/// tube reconstructs it. Scanlines only read as scanlines when that signal has far fewer lines
+/// than the display, so the whole scene chain renders here and `crt.wgsl` expands it.
+///
+/// 4/5 -- 864 lines at 1080p -- was picked by rendering the lane view and grading it, and the
+/// fraction matters as much as the size. The reconstruction samples the signal at the *output*
+/// pixel centre, so the row phases cycle through `(k + 1/2)·p/q mod 1` for a ratio `p/q`: the
+/// raster is deep and grid-locked only when some phase lands near 0 (a row exactly between two
+/// signal lines). At 1/2 the two phases are 1/4 and 3/4 -- mirror images that cancel, so a
+/// 540-line signal renders with *no* scanlines at all; at 5/6 (900 lines) the nearest phase is
+/// 5/12 and the raster is a third as deep. 4/5 puts one row of every five exactly in a gap with
+/// 3.8x contrast between its brightest and darkest rows, and the mosaic text stays legible:
+/// rendered at 1920x1080 the hero directory list on a panel reads the same at this resolution as
+/// at native, and the tube's raster is clearly visible at the default amount.
+const CRT_SIGNAL_RATIO: f32 = 0.8;
+
+/// The size the HDR chain renders at for a given output size and CRT amount.
+///
+/// `crt = 0` keeps the chain at the output size (and the CRT pass is skipped entirely); any
+/// amount above zero runs the scene at the signal resolution. The amount deliberately does not
+/// scale the resolution: 0.35 and 1 share one signal grid, so turning the effect up deepens the
+/// scanlines and the mask instead of also changing the picture's sharpness.
+fn scene_size(width: u32, height: u32, crt: f32) -> (u32, u32) {
+    if crt <= 0.0 {
+        return (width, height);
+    }
+    (
+        ((width as f32) * CRT_SIGNAL_RATIO).round().max(1.0) as u32,
+        ((height as f32) * CRT_SIGNAL_RATIO).round().max(1.0) as u32,
     )
 }
 
@@ -445,6 +498,10 @@ impl Renderer {
         }
         let _ = settings;
         let profile = want_profile.then(|| profile::Profile::new(&device, &queue));
+        // The scene chain runs at the CRT signal resolution when the tube is on, at the output
+        // size when it is off; `settings` decides which for the first frame.
+        let crt = settings.crt;
+        let (render_width, render_height) = scene_size(width, height, crt);
 
         // Everything below creates pipelines/resources; capture any validation error (WGSL
         // compile failures included) and surface it as RenderError so hosts can report it.
@@ -496,18 +553,22 @@ impl Renderer {
         let post = Post::new(&device);
         let mut bloom = Bloom::new(&device);
 
-        let targets = SceneTargets::new(&device, width, height)?;
+        let targets = SceneTargets::new(&device, render_width, render_height, crt > 0.0)?;
         let post_sampler = post.sampler.clone();
         let bloom0 = build_bloom_and_groups(
             &device,
             &mut bloom,
-            width,
-            height,
+            render_width,
+            render_height,
             &uniform_buf,
             &post_sampler,
             &post,
             &targets,
         );
+        let crt_bg = targets
+            .signal_view
+            .as_ref()
+            .map(|v| build_crt_bind_group(&device, &uniform_buf, &post, v));
 
         if let Some(err) = error_scope.pop().await {
             return Err(RenderError::Other(format!(
@@ -523,6 +584,9 @@ impl Renderer {
             width,
             height,
             scale,
+            render_width,
+            render_height,
+            crt,
             scene_bgl,
             scene_layout,
             atlas_tex,
@@ -539,6 +603,7 @@ impl Renderer {
             motion_bg: bloom0.0,
             composite_a_bg: bloom0.1,
             composite_b_bg: bloom0.2,
+            crt_bg,
             prev_view_proj: Mat4::IDENTITY,
             has_prev: false,
             presented: 0,
@@ -573,17 +638,22 @@ impl Renderer {
         log::debug!("gibson-render: resized to {w}x{h} (scale {scale})");
     }
 
-    /// Recreate the HDR targets, bloom chain and view-dependent bind groups at the current size.
+    /// Recreate the HDR targets, bloom chain and view-dependent bind groups at the current
+    /// scene size (the output size, or the CRT signal resolution when the tube is on).
     fn rebuild_size_dependent(&mut self) {
-        let Ok(targets) = SceneTargets::new(&self.device, self.width, self.height) else {
-            log::error!("gibson-render: failed to rebuild targets at {}x{}", self.width, self.height);
+        let (rw, rh) = scene_size(self.width, self.height, self.crt);
+        let signal = self.crt > 0.0;
+        let Ok(targets) = SceneTargets::new(&self.device, rw, rh, signal) else {
+            log::error!("gibson-render: failed to rebuild targets at {rw}x{rh}");
             return;
         };
+        self.render_width = rw;
+        self.render_height = rh;
         self.targets = targets;
         self.bloom.rebuild(
             &self.device,
-            self.width,
-            self.height,
+            rw,
+            rh,
             &self.uniform_buf,
             &self.post.sampler,
             &self.targets.view_a,
@@ -599,6 +669,23 @@ impl Renderer {
         self.motion_bg = mbg;
         self.composite_a_bg = cbg_a;
         self.composite_b_bg = cbg_b;
+        self.crt_bg = self
+            .targets
+            .signal_view
+            .as_ref()
+            .map(|v| build_crt_bind_group(&self.device, &self.uniform_buf, &self.post, v));
+    }
+
+    /// Resize the HDR chain if this frame's CRT amount changes the signal resolution. Cheap and
+    /// idempotent -- the sizes only move when the amount crosses zero (or the output resizes).
+    fn ensure_scene_size(&mut self, crt: f32) {
+        let want = scene_size(self.width, self.height, crt);
+        if want == (self.render_width, self.render_height) && (crt > 0.0) == (self.crt > 0.0) {
+            self.crt = crt;
+            return;
+        }
+        self.crt = crt;
+        self.rebuild_size_dependent();
     }
 
     /// Render one frame to the surface.
@@ -783,6 +870,11 @@ impl Renderer {
         final_format: wgpu::TextureFormat,
         mut profile: Option<&mut profile::Profile>,
     ) -> Result<(), RenderError> {
+        // The CRT amount decides the size the whole scene chain runs at; a change rebuilds the
+        // targets/bloom/bind groups once, before anything is encoded this frame.
+        let crt_on = frame.settings.crt > 0.0;
+        self.ensure_scene_size(frame.settings.crt);
+
         // Camera matrices.
         let vp = projection_matrix(&frame.camera, self.width, self.height)
             * view_matrix(&frame.camera);
@@ -793,8 +885,23 @@ impl Renderer {
             projection_matrix(&frame.prev_camera, self.width, self.height)
                 * view_matrix(&frame.prev_camera)
         };
-        let srgb_target = final_format.is_srgb();
-        let uniform = FrameUniform::new(vp, prev, frame, self.width, self.height, srgb_target);
+        // The composite writes the signal buffer when the CRT pass follows (an Rgba16Float
+        // target, so it encodes sRGB itself) and the final target otherwise.
+        let scene_srgb = if crt_on {
+            false
+        } else {
+            final_format.is_srgb()
+        };
+        let uniform = FrameUniform::new(
+            vp,
+            prev,
+            frame,
+            self.width,
+            self.height,
+            (self.render_width, self.render_height),
+            scene_srgb,
+            final_format.is_srgb(),
+        );
         self.queue
             .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniform));
 
@@ -981,23 +1088,68 @@ impl Renderer {
             rp.draw(0..3, 0..1);
         }
 
-        // --- Composite to the final target. ---
+        // --- Composite: tonemap + grain + vignette, into the final target or (when the CRT pass
+        // follows) the signal buffer the tube reconstructs. ---
         {
             let src_bg = if motion_on {
                 &self.composite_b_bg
             } else {
                 &self.composite_a_bg
             };
+            let (target_view, target_format) = if crt_on {
+                (
+                    self.targets
+                        .signal_view
+                        .as_ref()
+                        .expect("signal buffer when the CRT pass is active"),
+                    HDR_FORMAT,
+                )
+            } else {
+                (final_view, final_format)
+            };
             let pipeline = self
                 .post
-                .composite_pipeline(&self.device, final_format)
+                .composite_pipeline(&self.device, target_format)
                 .clone();
             let tw = match profile.as_deref_mut() {
-                Some(p) => p.pass("composite + CRT"),
+                Some(p) => p.pass("composite"),
                 None => None,
             };
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gibson-composite-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: tw,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_pipeline(&pipeline);
+            rp.set_bind_group(0, src_bg, &[]);
+            rp.set_vertex_buffer(0, self.post.triangle().slice(..));
+            rp.draw(0..3, 0..1);
+        }
+
+        // --- CRT pass: reconstruct the signal onto the display at full output resolution. ---
+        if crt_on {
+            let bg = self
+                .crt_bg
+                .as_ref()
+                .expect("CRT bind group when the CRT pass is active");
+            let pipeline = self.post.crt_pipeline(&self.device, final_format).clone();
+            let tw = match profile.as_deref_mut() {
+                Some(p) => p.pass("crt"),
+                None => None,
+            };
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-crt-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: final_view,
                     depth_slice: None,
@@ -1013,7 +1165,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             rp.set_pipeline(&pipeline);
-            rp.set_bind_group(0, src_bg, &[]);
+            rp.set_bind_group(0, bg, &[]);
             rp.set_vertex_buffer(0, self.post.triangle().slice(..));
             rp.draw(0..3, 0..1);
         }
@@ -1165,6 +1317,30 @@ fn build_view_bind_groups(
     let composite_a_bg = mk(&post.composite_bgl, &targets.view_a, bloom0, false);
     let composite_b_bg = mk(&post.composite_bgl, &targets.view_b, bloom0, false);
     (motion_bg, composite_a_bg, composite_b_bg)
+}
+
+/// The CRT pass's bind group: the frame uniform plus the composite's signal buffer.
+/// `crt.wgsl` fetches that texture with explicit `textureLoad`s, so it binds no sampler.
+fn build_crt_bind_group(
+    device: &wgpu::Device,
+    uniform: &wgpu::Buffer,
+    post: &Post,
+    signal: &wgpu::TextureView,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("gibson-crt-bg"),
+        layout: &post.crt_bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(signal),
+            },
+        ],
+    })
 }
 
 /// Round `v` up to the next multiple of `align`.

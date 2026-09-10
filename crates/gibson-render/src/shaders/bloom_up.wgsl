@@ -8,9 +8,9 @@ struct FrameUniform {
     prev_view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
-    tower_body: vec4<f32>,
-    tower_text: vec4<f32>,
-    highlight: vec4<f32>,
+    tower_body_normal: vec4<f32>,
+    tower_text_normal: vec4<f32>,
+    highlight_normal: vec4<f32>,
     floor_trace: vec4<f32>,
     floor_pad: vec4<f32>,
     pulse: vec4<f32>,
@@ -18,6 +18,11 @@ struct FrameUniform {
     time_fog_grid: vec4<f32>,
     resolution: vec4<f32>,
     fx: vec4<f32>,
+    post: vec4<f32>,
+    tower_body_siege: vec4<f32>,
+    tower_text_siege: vec4<f32>,
+    highlight_siege: vec4<f32>,
+    signal: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> u: FrameUniform;
 @group(0) @binding(1) var src_tex: texture_2d<f32>;

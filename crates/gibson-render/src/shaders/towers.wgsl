@@ -12,6 +12,15 @@
 // bottom), B = block id, A = block coverage. Layer p is panel p variant A, layer p+32 variant B;
 // a block flips variants every time its cycle counter increments.
 //
+// Height treatment: the glass is lit from the floor up. Emission carries a base glow (strongest
+// at the floor, e-folding away with height) and the body opacity thins toward the top, while the
+// glass edge rim and the block text keep their full strength - so the top of a tower reads as a
+// bright outline around translucent glass instead of dissolving into the fog.
+//
+// Siege: each instance carries `siege_t` (0 = normal, 1 = siege). Both palettes arrive in the
+// uniform and every tower picks its own point along the blend, body, text and highlight alike,
+// so a siege rolls through the city one building at a time.
+//
 // WebGL2 notes: no fwidth / implicit-LOD texture samples inside non-uniform control flow; the
 // resolved layer index is sampled with one explicit-LOD textureSampleLevel call.
 
@@ -20,9 +29,9 @@ struct FrameUniform {
     prev_view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
-    tower_body: vec4<f32>,
-    tower_text: vec4<f32>,
-    highlight: vec4<f32>,
+    tower_body_normal: vec4<f32>,
+    tower_text_normal: vec4<f32>,
+    highlight_normal: vec4<f32>,
     floor_trace: vec4<f32>,
     floor_pad: vec4<f32>,
     pulse: vec4<f32>,
@@ -30,6 +39,11 @@ struct FrameUniform {
     time_fog_grid: vec4<f32>,
     resolution: vec4<f32>,
     fx: vec4<f32>,
+    post: vec4<f32>,
+    tower_body_siege: vec4<f32>,
+    tower_text_siege: vec4<f32>,
+    highlight_siege: vec4<f32>,
+    signal: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> u: FrameUniform;
 @group(0) @binding(1) var atlas_tex: texture_2d_array<f32>;
@@ -46,6 +60,13 @@ const PANELS: u32 = 32u;
 const BAND_STEP: u32 = 7u;
 // Faces farther than this skip text sampling entirely (see the cost-control branch below).
 const FAR_TEXT_CUTOFF: f32 = 450.0;
+
+// Base glow: emission gain at the floor and at the top, and how fast it falls off between.
+const GLOW_BASE: f32 = 1.85;
+const GLOW_TOP: f32 = 0.30;
+const GLOW_FALLOFF: f32 = 2.6;
+// Glass opacity at the top, as a fraction of the palette alpha at the floor.
+const TOP_ALPHA: f32 = 0.16;
 
 // Deterministic scalar hashes (no sin; WebGL2-safe mediump-friendly).
 fn hash1(p: f32) -> f32 {
@@ -71,6 +92,7 @@ struct VsIn {
     @location(7) highlight_block: u32,
     @location(8) highlight_t: f32,
     @location(9) height: f32,
+    @location(10) siege_t: f32,
 };
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
@@ -83,6 +105,7 @@ struct VsOut {
     @location(6) @interpolate(flat) highlight_t: f32,
     @location(7) @interpolate(flat) anim_phase: f32,
     @location(8) @interpolate(flat) height: f32,
+    @location(9) @interpolate(flat) siege_t: f32,
 };
 
 @vertex
@@ -102,6 +125,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.highlight_t = in.highlight_t;
     out.anim_phase = in.anim_phase;
     out.height = h;
+    out.siege_t = in.siege_t;
     return out;
 }
 
@@ -133,12 +157,28 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // still filter down (the bias is a fraction of a level, not a mip disable).
     let lod = log2(max(max(texel_dx, texel_dy), 1.0)) - 0.5;
 
-    // Glass body: opacity with a subtle vertical gradient (brighter toward the top).
-    let vgrad = clamp(in.world.y / in.height, 0.0, 1.0);
-    var col = u.tower_body.rgb * u.tower_body.a * (0.8 + 0.4 * vgrad);
+    // Per-tower siege blend: both palettes are in the uniform and this tower picks its own point
+    // along NORMAL -> SIEGE (body, text and highlight together).
+    let st = clamp(in.siege_t, 0.0, 1.0);
+    let body = mix(u.tower_body_normal, u.tower_body_siege, st);
+    let text_col = mix(u.tower_text_normal.rgb, u.tower_text_siege.rgb, st);
+    let hl_col = mix(u.highlight_normal.rgb, u.highlight_siege.rgb, st);
+
+    // Height parameter: 0 at the floor, 1 at the top of this tower (the roof face sits at 1).
+    let vgrad = clamp(in.world.y / max(in.height, 1.0), 0.0, 1.0);
+    // The glass is lit from the floor: emission is strongest at the base and falls away with
+    // height. The roof keeps a little more than a pure falloff would give it so a skyline seen
+    // from above still carries a glow.
+    let glow = GLOW_TOP + GLOW_BASE * exp(-GLOW_FALLOFF * vgrad);
+    // Body opacity thins with height; the edge rim below overrides it back to the palette alpha
+    // so the silhouette stays drawn all the way to the top.
+    let glass = mix(1.0, TOP_ALPHA, smoothstep(0.0, 1.0, vgrad));
+
+    // Glass body: base-lit emission at the tower's own opacity.
+    var col = body.rgb * body.a * glow;
     if (in.face == 4u) {
         // Overhead the glass roof reads teal-green (film #3EE8C8) instead of the deep blue body.
-        col = mix(col, vec3<f32>(0.20, 0.92, 0.80) * u.tower_body.a * (0.8 + 0.4 * vgrad), 0.55);
+        col = mix(col, vec3<f32>(0.20, 0.92, 0.80) * body.a * glow, 0.55);
     }
 
     // Cost control: beyond this distance the face's own text is attenuated to a few percent
@@ -147,13 +187,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // fall through to the body + haze path below with no visible difference (both fetches below
     // use an explicit LOD / textureLoad, which is legal inside this non-uniform branch).
     if (in.face != 4u && dist > FAR_TEXT_CUTOFF) {
-        var far_col = u.tower_body.rgb * u.tower_body.a * (0.8 + 0.4 * vgrad);
+        var far_col = body.rgb * body.a * glow;
         far_col = far_col * exp(-dist / 190.0);
         far_col = mix(far_col, u.haze.rgb * 0.9, smoothstep(120.0, 620.0, dist));
         let far_fog = 1.0 - smoothstep(u.time_fog_grid.y, u.time_fog_grid.z, dist);
         far_col = far_col * far_fog;
         far_col = far_col + u.haze.rgb * 1.35 * (1.0 - far_fog) * (1.0 - far_fog);
-        return vec4<f32>(far_col, u.tower_body.a * far_fog);
+        return vec4<f32>(far_col, body.a * glass * far_fog);
     }
 
     // Sampling uv. A side band maps the full panel height over its slice of the face, so the
@@ -172,7 +212,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let top_rim = 1.0 - smoothstep(0.0, 0.02, in.uv.y);
         rim = max(rim, top_rim);
     }
-    col += u.tower_text.rgb * 0.5 * rim;
+    col += text_col * 0.5 * rim;
 
     // Which panel does this face show? Sides offset by the band so every band of a tall face
     // carries different text (no vertical repetition); the top face keeps its own layer.
@@ -218,14 +258,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // `lod` comes from the uniform-flow footprint calculation at the top of this function.
     let samp = textureSampleLevel(atlas_tex, atlas_smp, suv, i32(layer), lod);
     let glyph = samp.r * visible;
-    col += u.tower_text.rgb * glyph;
+    col += text_col * glyph;
 
     // Selected-block highlight: glyph pixels blend toward the highlight color and the whole
     // block gets a translucent fill.
     if (bid == in.highlight_block && bid > 0u) {
         let glyph_mask = smoothstep(0.001, 0.06, samp.r);
-        col = mix(col, u.highlight.rgb, in.highlight_t * glyph_mask);
-        col += u.highlight.rgb * samp.a * 0.5 * in.highlight_t;
+        col = mix(col, hl_col, in.highlight_t * glyph_mask);
+        col += hl_col * samp.a * 0.5 * in.highlight_t;
     }
 
     // Distance attenuation: in the deep 110-unit canyon a view ray crosses dozens of glass
@@ -242,5 +282,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let fog = 1.0 - smoothstep(u.time_fog_grid.y, u.time_fog_grid.z, dist);
     col = col * fog;
     col = col + u.haze.rgb * 1.35 * (1.0 - fog) * (1.0 - fog);
-    return vec4<f32>(col, u.tower_body.a * fog);
+    // Opacity: thinned by height across the glass, but the edge rim keeps the palette alpha, so
+    // the top of a tower is an opaque outline around translucent glass rather than a fade-out.
+    let alpha = body.a * mix(glass, 1.0, rim) * fog;
+    return vec4<f32>(col, alpha);
 }
