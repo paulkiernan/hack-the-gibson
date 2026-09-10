@@ -24,10 +24,11 @@
 //!
 //! Between the packages the free substrate forms a lattice of five-cell-wide lanes
 //! ([`LANE_HALF`]): pin ring, escape port, three cells of lane, escape port, ring. Bus
-//! bundles and the thick power rails run down the lane centres, and every net is a
-//! tower-to-tower run from one package's port to a neighbouring package's port - the local
-//! chip-to-chip wiring of a real board, not a scatter of packages on a board that happens
-//! to have towers on it.
+//! bundles and the thick power rails run down the lane centres, and the nets ride the
+//! lattice: every net is a tower-to-tower run from one package's port to another package's
+//! port, and the plan scatters them over a spread of lengths rather than wiring tower to
+//! adjacent tower ([`NET_BANDS`]) - the local chip-to-chip wiring of a real board crossed
+//! by a few long hauls and shared buses, not a uniform lattice of identical short links.
 //!
 //! Cell record (`data[z * cells + x]`, row-major z then x, four bytes), exactly the
 //! [`FloorMap`] encoding:
@@ -57,9 +58,12 @@
 //!    mounting hole blocks the lane.
 //! 4. Power rails: thick (gauge 2) runs down lanes 0 and 4 in both axes, crossing at four
 //!    points into a single connected supply ring.
-//! 5. Nets: every pin escapes outward to its port, and every port is routed octilinearly
-//!    to a port of a neighbouring tower's package, so each of the 768 pins terminates on
-//!    another pin and the tile reads as chip-to-chip wiring. A net the router cannot place
+//! 5. Nets: every pin escapes outward to its port, and the 768 pins are matched into 384
+//!    nets over a length distribution - roughly 45% local hops, 30% two to four pitches,
+//!    15% long runs and 10% cross-board hauls - so each pin terminates on another pin and
+//!    the tile reads as chip-to-chip wiring rather than as one repeated hop. A local or
+//!    medium net routes octilinearly port to port; a haul sweeps the lane lattice the long
+//!    way round the tile and joins it as a bundle track. A net the router cannot place
 //!    lands on a via at its source port instead.
 //! 6. Via fanouts: a bundle that changes layer drops its tracks into a staggered row of
 //!    vias.
@@ -107,13 +111,6 @@ const BODY_HALF: i32 = 2;
 
 /// The three pin positions along each package side, as offsets from the side's centre.
 const PIN_OFFSETS: [i32; 3] = [-2, 0, 2];
-
-/// Pin index bases within [`TowerPkg::pins`]: three pins per side, in the order the four
-/// package sides are emitted.
-const SIDE_PX: usize = 0;
-const SIDE_PZ: usize = 3;
-const SIDE_NX: usize = 6;
-const SIDE_NZ: usize = 9;
 
 /// Half-width of the fully-free routing lane between neighbouring packages:
 /// `12 - 7 = 5` cells wide, so a lane centre sits 2 cells clear of both pin rings. The
@@ -189,6 +186,25 @@ const COST_CROSS_FEATURE: u32 = 65;
 /// Extra charge for routing across a reserved ground-plane region: nets cross a plane when
 /// they must, but they prefer the lanes beside it.
 const COST_CROSS_PLANE: u32 = 80;
+/// What a net pays, under [`Bias::Follow`], for stepping onto bare substrate instead of
+/// copper that is already there. A net that only breaks ties in favour of reuse pays the
+/// low charge; a haul that is meant to join the lane lattice and run as a bus track pays
+/// the high one, which is what keeps the long runs on the lanes the board already carries
+/// instead of shredding the ground planes into islands.
+const COST_SHARE_COPPER: u32 = 30;
+const COST_JOIN_TRUNK: u32 = 30;
+/// How much longer than the straight octilinear line a run comes out once the router has
+/// woven through the copper already on the board - measured on this tile, it is about
+/// twice. The planner divides its target length by this before it looks for a partner, so
+/// the band a net is planned into is the band it is routed into.
+const ROUTE_STRETCH: usize = 2;
+/// Weight the A* priority puts on the remaining-distance estimate. At 1 the search proves
+/// the cheapest corridor, which with [`Bias::Follow`] means it will happily take a run
+/// half as long again along copper that is already there - and then the net arrives well
+/// past the length the plan asked for. Above 1 the search takes the first corridor that
+/// keeps closing on the destination and settles for it, which holds a net near its planned
+/// length and shrinks the search at the same time.
+const SEARCH_GREED: u32 = 2;
 
 // Content budget: how much board the tile carries.
 const BUS_COUNT: usize = 10;
@@ -198,7 +214,11 @@ const RAIL_LANES: [usize; 2] = [0, 4];
 const VIA_ARRAYS: usize = 4;
 /// A net may detour around packages and bundles, but a route longer than this is a walk
 /// rather than a wiring run and is dropped in favour of a via at the source port.
-const NET_LEN_CAP: usize = 48;
+const NET_LEN_CAP: usize = 96;
+/// The same ceiling for a haul, which leaves its port, sweeps the lane lattice the long way
+/// round the tile and cuts back in: a haul is *meant* to be long, so its cap only catches
+/// routes that lost the plot entirely.
+const HAUL_LEN_CAP: usize = 240;
 /// Ground-plane reservations: the top-left corner of each of the three rectangles the
 /// router is charged for crossing, so the nets mostly skirt them the way signals route
 /// around a plane rather than straight over it. They also leave the emptiest copper-free
@@ -208,6 +228,12 @@ const RESERVE_W: usize = POUR_W + 6;
 const RESERVE_H: usize = POUR_H + 4;
 const POUR_W: usize = 38;
 const POUR_H: usize = 24;
+/// How many ground planes the finishing pass floods. Three empty windows sufficed while
+/// every net was a five-cell hop; a board carrying cross-board hauls fragments its free
+/// space into more pockets, so the pass pours the six emptiest windows instead of leaving
+/// the planes as islands. Each successive window is scored after the previous floods, so
+/// the pass walks down the emptiest space rather than re-finding the same rectangle.
+const POUR_REGIONS: usize = 6;
 
 /// Flat index into a row-major (z, x) backing store.
 #[inline]
@@ -402,6 +428,10 @@ struct Board {
     grid: Vec<[u8; 4]>,
     /// Cells the router must never enter: IC packages and mounting holes.
     blocked: Vec<bool>,
+    /// [`Board::blocked`] widened to every cell of a package. The router tests this once
+    /// per neighbour it relaxes, and working out which package a cell belongs to is two
+    /// wrapped divisions, which is far too much arithmetic to repeat millions of times.
+    wall: Vec<bool>,
     /// Cells reserved for the ground planes, so nets route around them.
     plane: Vec<bool>,
 }
@@ -411,7 +441,18 @@ impl Board {
         Self {
             grid: vec![[0u8, 0, 0, A_EMPTY]; SIZE * SIZE],
             blocked: vec![false; SIZE * SIZE],
+            wall: vec![false; SIZE * SIZE],
             plane: vec![false; SIZE * SIZE],
+        }
+    }
+
+    /// Fold the package footprints into the router's barrier map. Packages and mounting
+    /// holes are all placed before a single net is routed, so this is built once.
+    fn close_walls(&mut self) {
+        for z in 0..SIZE {
+            for x in 0..SIZE {
+                self.wall[flat(x, z)] = self.blocked[flat(x, z)] || in_package(x, z);
+            }
         }
     }
 
@@ -597,13 +638,75 @@ fn emit_mounting_holes(board: &mut Board) -> Vec<(usize, usize)> {
 // Nets
 // ---------------------------------------------------------------------------
 
-/// One routed net: the two IC pins it joins and the routed length in cells (`None` when
-/// the router found no corridor and the net landed on a via instead).
+/// How a net's two ports are joined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Recipe {
+    /// Octilinear A* straight between the two ports, taking the shorter way round the
+    /// torus. This is the local and medium wiring, and it is what the whole board used to
+    /// be: one tower pitch from port to port.
+    Direct,
+    /// Follow the x-lane lattice the long way round the tile, then cut in to the
+    /// destination port: a haul that crosses the board instead of hopping to the next
+    /// tower. The mirror of [`Recipe::HaulZ`].
+    HaulX,
+    /// The same, sweeping the z-lane lattice.
+    HaulZ,
+}
+
+impl Recipe {
+    /// Cells this recipe may take before the net is written off to a via.
+    fn len_cap(self) -> usize {
+        match self {
+            Recipe::Direct => NET_LEN_CAP,
+            Recipe::HaulX | Recipe::HaulZ => HAUL_LEN_CAP,
+        }
+    }
+
+    /// Lattice sweep order: local wiring first, then the medium runs, then the hauls, so
+    /// the short nets lay their copper against a board that is still mostly empty and the
+    /// hauls then follow the lattice those runs and the bundles have already established.
+    fn pass(self) -> usize {
+        match self {
+            Recipe::Direct => 0,
+            Recipe::HaulX | Recipe::HaulZ => 1,
+        }
+    }
+}
+
+/// One routed net: the two IC pins it joins, the length the planner aimed for, the recipe
+/// it is routed with, and the routed length in cells (`None` when the router found no
+/// corridor and the net landed on a via instead).
 #[derive(Clone, Copy, Debug)]
 struct Net {
     from: (usize, usize),
     to: (usize, usize),
+    /// Planned length in cells. The plan is a spread, not a single hop: see [`NET_BANDS`].
+    plan: usize,
+    recipe: Recipe,
+    /// Realised length in cells once routed.
     len: Option<usize>,
+}
+
+/// The net length distribution the planner aims for, as `(share %, min cells, max cells)`.
+/// A real board is not one length: a few long hauls and shared buses cross the whole thing
+/// while plenty of short local nets fill in around them. Local is still the commonest case
+/// and everything else is a tail - the point is the spread, and the conspicuous long runs
+/// it puts on the board.
+///
+/// A tower pitch is [`CELLS_PER_TOWER`] cells, so the bands read as roughly one pitch,
+/// two to four, four to seven, and a lap of the tile (the torus is eight towers per side,
+/// so a haul beyond four pitches only exists as a route that goes the long way round).
+const NET_BANDS: [(usize, usize, usize); 4] = [(45, 4, 14), (32, 22, 46), (15, 50, 84), (8, 86, 130)];
+
+/// One IC pin as the net planner sees it: its package, its package cell, the free port its
+/// escape runs onto, the direction it faces, and the lane intersection nearest that port.
+#[derive(Clone, Copy, Debug)]
+struct PinRef {
+    tower: usize,
+    cell: (usize, usize),
+    port: (usize, usize),
+    dir: usize,
+    lane: (usize, usize),
 }
 
 /// The free cell a pin's escape runs onto: one step outward from the pin cell.
@@ -614,63 +717,387 @@ fn port_of(pin: (usize, usize)) -> (usize, usize) {
     step_to(pin.0, pin.1, dx, dz)
 }
 
-/// Plan every net: each tower's `+x` pins wire to the `-x` pins of the tower one pitch
-/// east, and its `+z` pins to the `-z` pins of the tower one pitch north. The cyclic shift
-/// of the pins along a side turns a straight run into a 45-degree jog - a real board's
-/// wiring - while staying a bijection, so each of the 768 pins carries exactly one net and
-/// every net joins two different towers.
-fn plan_nets(rng: &mut StdRng, pkgs: &[TowerPkg]) -> Vec<Net> {
-    let index = |kx: usize, kz: usize| -> usize {
-        (kz % TOWERS_PER_SIDE) * TOWERS_PER_SIDE + (kx % TOWERS_PER_SIDE)
+/// Lane index along an axis whose centre sits nearest `v`, on the ring of lanes. A port
+/// never sits more than half a pitch from a lane centre, so the nearest intersection is
+/// always a step or two away.
+#[inline]
+fn nearest_lane(v: usize, first: usize) -> usize {
+    let d = (v as i64 - first as i64).rem_euclid(SIZE as i64);
+    (((d + CELLS_PER_TOWER as i64 / 2) / CELLS_PER_TOWER as i64)
+        .rem_euclid(TOWERS_PER_SIDE as i64)) as usize
+}
+
+/// The lane intersection nearest a port.
+#[inline]
+fn lanes_of(port: (usize, usize)) -> (usize, usize) {
+    (
+        nearest_lane(port.0, 0),
+        nearest_lane(port.1, FIRST_COL_CENTER),
+    )
+}
+
+/// Octilinear distance in steps between two cells, wrap-aware.
+#[inline]
+fn octi(a: (usize, usize), b: (usize, usize)) -> usize {
+    delta(a.0, b.0).abs().max(delta(a.1, b.1).abs()) as usize
+}
+
+/// Steps round a lane ring from `a` to `b`: the short way (0..=4 steps) with its step
+/// direction, then the long way (4..=8) with the opposite one.
+#[inline]
+fn ring_walk(a: usize, b: usize) -> (usize, i32, usize, i32) {
+    let n = TOWERS_PER_SIDE as i32;
+    let fwd = (b as i32 - a as i32).rem_euclid(n);
+    if fwd <= n / 2 {
+        (fwd as usize, 1, (n - fwd) as usize, -1)
+    } else {
+        ((n - fwd) as usize, -1, fwd as usize, 1)
+    }
+}
+
+/// What a haul along `axis` (0 = the x lanes, 1 = the z lanes) would cost in cells: sweep
+/// the lane ring the long way on that axis, the short way on the other, and add the two
+/// cuts from the ports in to their nearest intersections. `None` when the two ports share
+/// a lane on that axis, because the long way round would then be a full lap that passes
+/// the destination lane on the way out.
+#[inline]
+fn haul_model(a: &PinRef, b: &PinRef, axis: usize) -> Option<usize> {
+    let (m, n) = if axis == 0 {
+        (a.lane.0, b.lane.0)
+    } else {
+        (a.lane.1, b.lane.1)
     };
-    let mut nets = Vec::with_capacity(TOWERS_PER_SIDE * TOWERS_PER_SIDE * 6);
-    for kz in 0..TOWERS_PER_SIDE {
-        for kx in 0..TOWERS_PER_SIDE {
-            let here = &pkgs[index(kx, kz)];
-            let east = &pkgs[index(kx + 1, kz)];
-            let north = &pkgs[index(kx, kz + 1)];
-            let sx = rng.random_range(1..=2);
-            let sz = rng.random_range(1..=2);
-            for i in 0..3 {
-                nets.push(Net {
-                    from: here.pins[SIDE_PX + i].cell,
-                    to: east.pins[SIDE_NX + (i + sx) % 3].cell,
-                    len: None,
-                });
-                nets.push(Net {
-                    from: here.pins[SIDE_PZ + i].cell,
-                    to: north.pins[SIDE_NZ + (i + sz) % 3].cell,
-                    len: None,
-                });
+    let (short, _, long, _) = ring_walk(m, n);
+    if short == 0 {
+        return None;
+    }
+    let (other_a, other_b) = if axis == 0 {
+        (a.lane.1, b.lane.1)
+    } else {
+        (a.lane.0, b.lane.0)
+    };
+    let (other_short, _, _, _) = ring_walk(other_a, other_b);
+    let ia = (lane_x(a.lane.0), lane_z(a.lane.1));
+    let ib = (lane_x(b.lane.0), lane_z(b.lane.1));
+    Some(
+        (long + other_short) * CELLS_PER_TOWER
+            + (octi(a.port, ia) + 1) * ROUTE_STRETCH
+            + (octi(ib, b.port) + 1) * ROUTE_STRETCH,
+    )
+}
+
+/// The recipe that lands nearest `target` for this pair, with its planned length in cells.
+fn best_recipe(a: &PinRef, b: &PinRef, target: usize) -> (usize, Recipe) {
+    let direct = octi(a.port, b.port) * ROUTE_STRETCH + 1;
+    let mut best = (direct, Recipe::Direct);
+    for (axis, recipe) in [(0usize, Recipe::HaulX), (1usize, Recipe::HaulZ)] {
+        if let Some(len) = haul_model(a, b, axis) {
+            if len.abs_diff(target) < best.0.abs_diff(target) {
+                best = (len, recipe);
             }
         }
+    }
+    best
+}
+
+/// Wrapped displacement a net leaves its source pin by, in the route's own sense: for a
+/// haul that is the long way round, which is what makes the trace leave the package on the
+/// side facing its sweep instead of doubling back.
+fn route_delta(a: (usize, usize), b: (usize, usize), recipe: Recipe) -> (i32, i32) {
+    let (dx, dz) = (delta(a.0, b.0), delta(a.1, b.1));
+    let long = |d: i32| -> i32 {
+        let mag = SIZE as i32 - d.abs();
+        if d >= 0 {
+            -mag
+        } else {
+            mag
+        }
+    };
+    match recipe {
+        Recipe::Direct => (dx, dz),
+        Recipe::HaulX => (long(dx), dz),
+        Recipe::HaulZ => (dx, long(dz)),
+    }
+}
+
+/// Soft charge against a pin that faces away from the route it would carry. Two pins that
+/// both point at each other wire up as a short clean run; a pin wired backwards would have
+/// to loop round its own package first.
+fn direction_penalty(a: &PinRef, b: &PinRef, recipe: Recipe) -> u32 {
+    let (rx, rz) = route_delta(a.port, b.port, recipe);
+    let mut pen = 0;
+    let (ax, az) = DIR_STEP[a.dir];
+    if ax * rx + az * rz <= 0 {
+        pen += 12;
+    }
+    let (bx, bz) = DIR_STEP[b.dir];
+    if bx * rx + bz * rz >= 0 {
+        pen += 8;
+    }
+    pen
+}
+
+/// Draw the next band from the shares still unspent, so the realised plan keeps the
+/// distribution even as pins run out.
+fn draw_band(rng: &mut StdRng, budget: &mut [usize; NET_BANDS.len()]) -> usize {
+    let total: usize = budget.iter().sum();
+    if total == 0 {
+        return 0;
+    }
+    let mut r = rng.random_range(0..total);
+    for (b, left) in budget.iter_mut().enumerate() {
+        if r < *left {
+            *left -= 1;
+            return b;
+        }
+        r -= *left;
+    }
+    0
+}
+
+/// The unmatched pin that best serves `target` for pin `i` - the closest fitting partner,
+/// with ties broken by a hash of the candidate index so the plan does not come out as a
+/// deterministic star. Pins of another tower are preferred; a pin is only ever paired with
+/// one from its own package when nothing else is left, which keeps every net a link
+/// between two towers.
+///
+/// This is also the fallback: because every candidate is scored by how far its nearest
+/// achievable recipe is from the target, running out of pins at the target distance widens
+/// or narrows the band on its own - the closest thing left wins - and the perfect matching
+/// is never broken, because the pairing always consumes two unmatched pins.
+fn best_partner(pins: &[PinRef], taken: &[bool], i: usize, target: usize) -> Option<usize> {
+    let a = &pins[i];
+    let mut cross: Option<(u64, usize)> = None;
+    let mut same: Option<(u64, usize)> = None;
+    for (j, b) in pins.iter().enumerate() {
+        if j == i || taken[j] {
+            continue;
+        }
+        let (model, recipe) = best_recipe(a, b, target);
+        let score = ((model.abs_diff(target) / 2) * 2) as u64 + direction_penalty(a, b, recipe) as u64;
+        let jitter = ((j as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 52) as u64;
+        let key = score * 4096 + jitter;
+        let slot = if a.tower == b.tower { &mut same } else { &mut cross };
+        if slot.is_none_or(|(best, _)| key < best) {
+            *slot = Some((key, j));
+        }
+    }
+    cross.or(same).map(|(_, j)| j)
+}
+
+/// Plan the net list: a perfect matching over all 768 pins, built from a length
+/// distribution rather than from the tower grid. Pins are taken in a shuffled order; each
+/// unmatched pin draws a band, and is paired with the unmatched partner - preferably one
+/// on another tower - whose routable separation lands nearest that target. Local hops stay
+/// the commonest case, but the plan reaches across the tile for its medium, long and
+/// cross-board nets, so the board reads as a routed design instead of a uniform lattice of
+/// identical short links.
+fn plan_nets(rng: &mut StdRng, pkgs: &[TowerPkg]) -> Vec<Net> {
+    let mut pins: Vec<PinRef> = Vec::with_capacity(pkgs.len() * 12);
+    for (tower, pkg) in pkgs.iter().enumerate() {
+        for pin in &pkg.pins {
+            let dir = pin_dir(pin.cell.0, pin.cell.1).expect("pins come from the package ring");
+            pins.push(PinRef {
+                tower,
+                cell: pin.cell,
+                port: pin.port,
+                dir,
+                lane: lanes_of(pin.port),
+            });
+        }
+    }
+    debug_assert_eq!(pins.len() % 2, 0, "pins must pair off exactly");
+
+    let n = pins.len();
+    let mut order: Vec<usize> = (0..n).collect();
+    order.shuffle(rng);
+    let mut taken = vec![false; n];
+
+    // Net budget per band, so the shares are the shares however the greedy matching falls.
+    let nets_total = n / 2;
+    let mut budget = [0usize; NET_BANDS.len()];
+    let mut assigned = 0usize;
+    for (b, &(share, _, _)) in NET_BANDS.iter().enumerate() {
+        budget[b] = nets_total * share / 100;
+        assigned += budget[b];
+    }
+    budget[0] += nets_total - assigned;
+
+    let mut nets = Vec::with_capacity(nets_total);
+    for &i in &order {
+        if taken[i] {
+            continue;
+        }
+        taken[i] = true;
+        let band = draw_band(rng, &mut budget);
+        let (lo, hi) = (NET_BANDS[band].1, NET_BANDS[band].2);
+        let target = rng.random_range(lo..=hi);
+        let Some(j) = best_partner(&pins, &taken, i, target) else {
+            // Only reachable if a pin were left on its own, which cannot happen while pins
+            // pair off exactly; keep the pin unmatched rather than invent a partner.
+            taken[i] = false;
+            continue;
+        };
+        taken[j] = true;
+        let (plan, recipe) = best_recipe(&pins[i], &pins[j], target);
+        nets.push(Net {
+            from: pins[i].cell,
+            to: pins[j].cell,
+            plan,
+            recipe,
+            len: None,
+        });
     }
     nets
 }
 
-/// Draw every pin's escape, then route every net port-to-port octilinearly. A net the
-/// router cannot place inside [`NET_LEN_CAP`] terminates on a via at its source port
-/// rather than being left in the air.
-fn emit_nets(board: &mut Board, rng: &mut StdRng, pkgs: &[TowerPkg], nets: &mut [Net]) {
+/// A free cell on the lane through `(x, z)`. The only blocked cells on a lane are the
+/// mounting holes that sit on four intersections, so a one-cell nudge along the lane gets
+/// the waypoint clear of them without leaving the lattice.
+fn free_lane(board: &Board, x: usize, z: usize) -> (usize, usize) {
+    if !board.blocked[flat(x, z)] {
+        return (x, z);
+    }
+    for (dx, dz) in [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)] {
+        let c = step_to(x, z, dx, dz);
+        if !board.blocked[flat(c.0, c.1)] {
+            return c;
+        }
+    }
+    (x, z)
+}
+
+/// The waypoints a haul follows: out of the source port to its nearest lane intersection,
+/// the long way round the lane ring on one axis, the short way on the other, then in to the
+/// destination port. Each leg is a short octilinear run, so a haul costs a handful of small
+/// searches instead of one that has to fight across the whole board.
+fn haul_waypoints(
+    board: &Board,
+    from: (usize, usize),
+    to: (usize, usize),
+    axis: usize,
+) -> Vec<(usize, usize)> {
+    let (ms, ns) = lanes_of(from);
+    let (md, nd) = lanes_of(to);
+    let (_, _, long, dir) = if axis == 0 {
+        ring_walk(ms, md)
+    } else {
+        ring_walk(ns, nd)
+    };
+    let (short, sdir, _, _) = if axis == 0 {
+        ring_walk(ns, nd)
+    } else {
+        ring_walk(ms, md)
+    };
+    let ring = TOWERS_PER_SIDE as i32;
+    let mut wps = vec![from, free_lane(board, lane_x(ms), lane_z(ns))];
+    let (mut m, mut n) = (ms as i32, ns as i32);
+    for _ in 0..long {
+        if axis == 0 {
+            m = (m + dir).rem_euclid(ring);
+        } else {
+            n = (n + dir).rem_euclid(ring);
+        }
+        wps.push(free_lane(board, lane_x(m as usize), lane_z(n as usize)));
+    }
+    for _ in 0..short {
+        if axis == 0 {
+            n = (n + sdir).rem_euclid(ring);
+        } else {
+            m = (m + sdir).rem_euclid(ring);
+        }
+        wps.push(free_lane(board, lane_x(m as usize), lane_z(n as usize)));
+    }
+    wps.push(to);
+    wps
+}
+
+/// Route a haul leg by leg along its waypoints, returning the whole path plus the index
+/// range of the lattice sweep between the first and last intersection - the part that runs
+/// as a bundle and is flagged as one.
+fn route_haul(
+    board: &Board,
+    router: &mut Router,
+    net: &Net,
+    bias: Bias,
+) -> Option<(Vec<(usize, usize)>, usize, usize)> {
+    let from = port_of(net.from);
+    let to = port_of(net.to);
+    let axis = if net.recipe == Recipe::HaulX { 0 } else { 1 };
+    let wps = haul_waypoints(board, from, to, axis);
+    let mut path = vec![wps[0]];
+    let mut bounds = Vec::with_capacity(wps.len());
+    bounds.push(0usize);
+    for pair in wps.windows(2) {
+        let leg = router.route(board, pair[0], pair[1], bias)?;
+        if leg.first() != Some(&pair[0]) {
+            return None;
+        }
+        path.extend_from_slice(&leg[1..]);
+        bounds.push(path.len() - 1);
+    }
+    Some((path, bounds[1], bounds[bounds.len() - 2]))
+}
+
+/// Draw every pin's escape, then route every net. Local and medium nets route octilinearly
+/// port to port; hauls sweep the lane lattice the long way round, joining the copper that
+/// the lattice already carries. A net the router cannot place inside its cap terminates on
+/// a via at its source port rather than being left in the air. Returns how many nets took
+/// that fallback.
+fn emit_nets(board: &mut Board, rng: &mut StdRng, pkgs: &[TowerPkg], nets: &mut [Net]) -> usize {
+    board.close_walls();
     for pkg in pkgs {
         for pin in &pkg.pins {
             let base: u8 = rng.random_range(190..=250);
             board.pin_escape(pin, base);
         }
     }
-    for net in nets.iter_mut() {
+    // Local wiring first, hauls last: the short nets are placed against the board the
+    // bundles and rails left, and the hauls then follow the lattice that is already there
+    // rather than inventing a corridor of their own.
+    let mut order: Vec<usize> = (0..nets.len()).collect();
+    order.sort_by_key(|&i| nets[i].recipe.pass());
+
+    let mut router = Router::new();
+    let mut fallbacks = 0usize;
+    for &i in &order {
+        let net = nets[i];
         let base: u8 = rng.random_range(185..=255);
         let from_port = port_of(net.from);
-        match route(board, from_port, port_of(net.to)) {
-            Some(path) if path.len() <= NET_LEN_CAP => {
+        // A local hop is wired the way it always was: its own clean run, keeping clear of
+        // everything else. Anything planned longer follows the copper already on the board,
+        // which is what lets medium and long nets exist at all on a tile this dense without
+        // eating the ground planes.
+        let bias = match net.recipe {
+            Recipe::Direct if net.plan > NET_BANDS[0].2 => Bias::Follow(COST_SHARE_COPPER),
+            Recipe::Direct => Bias::Avoid,
+            Recipe::HaulX | Recipe::HaulZ => Bias::Follow(COST_JOIN_TRUNK),
+        };
+        let routed = match net.recipe {
+            Recipe::Direct => router
+                .route(board, from_port, port_of(net.to), bias)
+                .map(|path| (path, 0usize, 0usize)),
+            Recipe::HaulX | Recipe::HaulZ => {
+                route_haul(board, &mut router, &net, Bias::Follow(COST_JOIN_TRUNK))
+            }
+        };
+        match routed {
+            Some((path, lattice_start, lattice_end)) if path.len() <= net.recipe.len_cap() => {
                 board.stamp(&path, GAUGE_THIN, 0, base);
-                net.len = Some(path.len());
+                if lattice_end > lattice_start {
+                    // The sweep joins the lane lattice as a bundle track: heavier gauge, and
+                    // flagged so the board reads as buses rather than as loose spaghetti.
+                    board.stamp(&path[lattice_start..=lattice_end], GAUGE_MED, B_BUS, base);
+                }
+                nets[i].len = Some(path.len());
             }
             _ => {
                 board.feature(from_port.0, from_port.1, G_VIA);
+                fallbacks += 1;
             }
         }
     }
+    fallbacks
 }
 
 // ---------------------------------------------------------------------------
@@ -843,35 +1270,83 @@ fn turn_cost(prev: usize, next: usize) -> u32 {
     }
 }
 
-/// Octilinear A* between two cells: least-turn routing over the eight directions with a
-/// turn charge, so paths come out as long straight runs joined by 45-degree jogs. Returns
-/// the cell path including both endpoints.
-fn route(board: &Board, from: (usize, usize), to: (usize, usize)) -> Option<Vec<(usize, usize)>> {
-    let start = flat(from.0, from.1);
-    let goal = flat(to.0, to.1);
-    if start == goal || board.blocked[goal] || in_package(to.0, to.1) {
-        return None;
+/// How a route should treat copper that is already on the board.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Bias {
+    /// Keep clear of other nets' copper, the way a signal routed first does.
+    Avoid,
+    /// Prefer copper that is already there, charging `new_copper` extra for every cell of
+    /// fresh substrate. A medium net pays a little and only leans towards reuse; a haul
+    /// pays a lot and runs as a bundle track down the lane lattice.
+    Follow(u32),
+}
+
+/// Reusable A* scratch space. A search visits a small part of a 96 x 96 x 8 search space,
+/// but there are several hundred of them in one tile, so the distance and predecessor
+/// arrays live here and carry a generation stamp instead of being re-zeroed per net.
+struct Router {
+    dist: Vec<u32>,
+    prev: Vec<u32>,
+    seen: Vec<u32>,
+    heap: BinaryHeap<Reverse<(u32, u32, u32)>>,
+    generation: u32,
+}
+
+impl Router {
+    fn new() -> Self {
+        let nodes = SIZE * SIZE * 9;
+        Self {
+            dist: vec![0; nodes],
+            prev: vec![0; nodes],
+            seen: vec![0; nodes],
+            heap: BinaryHeap::new(),
+            generation: 0,
+        }
+    }
+
+    /// Octilinear A* between two cells: least-turn routing over the eight directions with a
+    /// turn charge, so paths come out as long straight runs joined by 45-degree jogs.
+    /// Returns the cell path including both endpoints.
+    fn route(
+        &mut self,
+        board: &Board,
+        from: (usize, usize),
+        to: (usize, usize),
+        bias: Bias,
+    ) -> Option<Vec<(usize, usize)>> {
+        let start = flat(from.0, from.1);
+        let goal = flat(to.0, to.1);
+        if start == goal || board.wall[goal] {
+            return None;
+        }
+    // Wrapped distance to the goal, per row and per column, so the heuristic is two
+    // lookups and a multiply rather than two `rem_euclid` calls - it runs once per edge the
+    // search relaxes, and there are hundreds of thousands of those in one tile.
+    let mut to_col = [0u32; SIZE];
+    let mut to_row = [0u32; SIZE];
+    for (i, v) in to_col.iter_mut().enumerate() {
+        let d = (i as i64 - to.0 as i64).rem_euclid(SIZE as i64) as usize;
+        *v = d.min(SIZE - d) as u32;
+    }
+    for (i, v) in to_row.iter_mut().enumerate() {
+        let d = (i as i64 - to.1 as i64).rem_euclid(SIZE as i64) as usize;
+        *v = d.min(SIZE - d) as u32;
     }
     let h = |cx: usize, cz: usize| -> u32 {
-        let adx = {
-            let d = (cx as i64 - to.0 as i64).rem_euclid(SIZE as i64) as usize;
-            d.min(SIZE - d) as u32
-        };
-        let adz = {
-            let d = (cz as i64 - to.1 as i64).rem_euclid(SIZE as i64) as usize;
-            d.min(SIZE - d) as u32
-        };
+        let (adx, adz) = (to_col[cx], to_row[cz]);
         (adx.max(adz) - adx.min(adz)) * STEP_STRAIGHT + adx.min(adz) * STEP_DIAG
     };
-    let nodes = SIZE * SIZE * 9;
-    let mut dist = vec![u32::MAX; nodes];
-    let mut prev = vec![u32::MAX; nodes];
-    let mut heap: BinaryHeap<Reverse<(u32, u32, u32)>> = BinaryHeap::new();
+    self.generation = self.generation.wrapping_add(1);
+    let gen = self.generation;
+    self.heap.clear();
+    #[allow(clippy::cast_possible_truncation)]
     let start_node = (start * 9 + 8) as u32;
-    dist[start * 9 + 8] = 0;
-    heap.push(Reverse((h(from.0, from.1), 0, start_node)));
+    self.seen[start * 9 + 8] = gen;
+    self.dist[start * 9 + 8] = 0;
+    self.heap
+        .push(Reverse((h(from.0, from.1) * SEARCH_GREED, 0, start_node)));
     let mut found = None;
-    while let Some(Reverse((_, g, node))) = heap.pop() {
+    while let Some(Reverse((_, g, node))) = self.heap.pop() {
         let node = node as usize;
         let cell = node / 9;
         let dir = node % 9;
@@ -879,37 +1354,51 @@ fn route(board: &Board, from: (usize, usize), to: (usize, usize)) -> Option<Vec<
             found = Some(node as u32);
             break;
         }
-        if g > dist[node] {
+        if g > self.dist[node] {
             continue;
         }
         let (cx, cz) = (cell % SIZE, cell / SIZE);
         for nd in 0..8 {
             let (dx, dz) = DIR_STEP[nd];
             let (nx, nz) = step_to(cx, cz, dx, dz);
-            if board.blocked[flat(nx, nz)] || in_package(nx, nz) {
+            if board.wall[flat(nx, nz)] {
                 continue;
             }
             let mut cost = if is_diagonal(nd) { STEP_DIAG } else { STEP_STRAIGHT };
             if dir != 8 {
                 cost += turn_cost(dir, nd);
             }
-            if board.plane[flat(nx, nz)] {
+            let reserved = board.plane[flat(nx, nz)];
+            if reserved {
                 cost += COST_CROSS_PLANE;
             }
             if flat(nx, nz) != goal {
                 let c = board.at(nx, nz);
-                if c[0] != 0 {
-                    cost += COST_CROSS_TRACE;
-                } else if (G_PAD..=G_PIN).contains(&c[1]) {
-                    cost += COST_CROSS_FEATURE;
+                match bias {
+                    Bias::Avoid => {
+                        if c[0] != 0 {
+                            cost += COST_CROSS_TRACE;
+                        } else if (G_PAD..=G_PIN).contains(&c[1]) {
+                            cost += COST_CROSS_FEATURE;
+                        }
+                    }
+                    Bias::Follow(new_copper) => {
+                        if (G_PAD..=G_PIN).contains(&c[1]) {
+                            cost += COST_CROSS_FEATURE;
+                        } else if c[0] == 0 && c[1] == 0 {
+                            cost += new_copper;
+                        }
+                    }
                 }
             }
             let ng = g + cost;
             let nnode = flat(nx, nz) * 9 + nd;
-            if ng < dist[nnode] {
-                dist[nnode] = ng;
-                prev[nnode] = node as u32;
-                heap.push(Reverse((ng + h(nx, nz), ng, nnode as u32)));
+            if self.seen[nnode] != gen || ng < self.dist[nnode] {
+                self.seen[nnode] = gen;
+                self.dist[nnode] = ng;
+                self.prev[nnode] = node as u32;
+                self.heap
+                    .push(Reverse((ng + h(nx, nz) * SEARCH_GREED, ng, nnode as u32)));
             }
         }
     }
@@ -919,7 +1408,7 @@ fn route(board: &Board, from: (usize, usize), to: (usize, usize)) -> Option<Vec<
     while cur != start_node {
         let cell = (cur as usize) / 9;
         path.push((cell % SIZE, cell / SIZE));
-        let p = prev[cur as usize];
+        let p = self.prev[cur as usize];
         if p == u32::MAX {
             break;
         }
@@ -928,6 +1417,7 @@ fn route(board: &Board, from: (usize, usize), to: (usize, usize)) -> Option<Vec<
     path.push(from);
     path.reverse();
     Some(path)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1152,6 +1642,11 @@ fn pour_region(
 /// assert on the routing itself rather than reverse-engineering it from the cells.
 struct Plan {
     map: FloorMap,
+    /// Nets that could not be routed inside their cap and landed on a via at the source
+    /// port instead. A handful is fine - it is the legal termination the router always had -
+    /// but a plan that leans on it has stopped being a wiring plan.
+    #[allow(dead_code)]
+    fallbacks: usize,
     /// The package plan, kept for tests and callers that want the land pattern.
     #[allow(dead_code)]
     packages: Vec<TowerPkg>,
@@ -1200,22 +1695,23 @@ fn generate_planned(seed: u64) -> Plan {
     }
     emit_rails(&mut board, &mut rng);
 
-    // Nets: every pin escapes outward, then every port routes to a neighbouring tower's
-    // port, so the dominant copper is chip-to-chip wiring.
+    // Nets: every pin escapes outward, then the plan wires the pins to each other over a
+    // spread of lengths, so the board carries local hops and cross-board hauls both.
     let mut nets = plan_nets(&mut rng, &packages);
-    emit_nets(&mut board, &mut rng, &packages, &mut nets);
+    let fallbacks = emit_nets(&mut board, &mut rng, &packages, &mut nets);
 
     // Layer changes, termination, silkscreen, then the ground planes.
     emit_via_fanout(&mut board, &mut rng, &buses);
     terminate_dead_ends(&mut board, &mut rng);
 
-    // Ground planes: flood the three emptiest windows the finished routing left, so the
-    // copper lands where a plane can actually be seen - in the negative space around the
-    // routes rather than across them. The board is dense now, so the windows are found
-    // with a cheap coarse sweep over the whole tile and then refined to the cell, rather
-    // than being locked to a fixed rectangle. Alternating regions come out hatched, then
-    // the silkscreen goes on top of everything.
-    for i in 0..PLANE_RESERVES.len() {
+    // Ground planes: flood the emptiest windows the finished routing left, so the copper
+    // lands where a plane can actually be seen - in the negative space around the routes
+    // rather than across them. The board is dense now, so the windows are found with a
+    // cheap coarse sweep over the whole tile and then refined to the cell, rather than
+    // being locked to a fixed rectangle; each plane is scored after the last one flooded,
+    // so the pass keeps walking down the emptiest space. Alternating regions come out
+    // hatched, then the silkscreen goes on top of everything.
+    for i in 0..POUR_REGIONS {
         let mut best = ((0usize, 0usize), 0usize);
         for z0 in (0..SIZE).step_by(4) {
             for x0 in (0..SIZE).step_by(4) {
@@ -1245,6 +1741,7 @@ fn generate_planned(seed: u64) -> Plan {
             cells: FLOOR_TILE_CELLS,
             data: board.grid,
         },
+        fallbacks,
         packages,
         nets,
     }
@@ -1254,10 +1751,11 @@ fn generate_planned(seed: u64) -> Plan {
 ///
 /// Returns a `FLOOR_TILE_CELLS x FLOOR_TILE_CELLS` toroidal tile laid out like a routed
 /// printed circuit board whose components are the towers: an IC package under every tower
-/// (a 5 x 5 body, 12 pins on the ring, a silkscreen courtyard and a pin-1 dot), tower-to-
-/// tower octilinear nets between neighbouring packages, parallel bus bundles with
-/// 45-degree corners down the lanes, thick power rails on a supply ring, via stitching and
-/// fanouts, and copper pours with clearance moats.
+/// (a 5 x 5 body, 12 pins on the ring, a silkscreen courtyard and a pin-1 dot), 384
+/// octilinear tower-to-tower nets scattered over a spread of lengths from local hops to
+/// cross-board hauls, parallel bus bundles with 45-degree corners down the lanes, thick
+/// power rails on a supply ring, via stitching and fanouts, and copper pours with clearance
+/// moats.
 pub fn generate(seed: u64) -> FloorMap {
     generate_planned(seed).map
 }
@@ -1479,46 +1977,122 @@ mod tests {
         }
     }
 
-    // --- Acceptance 4: nets run tower to tower, mostly to nearby towers. ---
+    // --- Acceptance 4: the net list is a spread of lengths, not one repeated hop. ---
+
+    /// Band index of a routed net length in cells, on the edges the planner aims at.
+    fn band_of(len: usize) -> usize {
+        match len {
+            0..=16 => 0,
+            17..=48 => 1,
+            49..=84 => 2,
+            _ => 3,
+        }
+    }
+
+    /// Chebyshev distance between two towers in pitches, wrap-aware: the torus is eight
+    /// towers per side, so this runs 0..=4.
+    fn tower_pitch_distance(a: usize, b: usize) -> usize {
+        let pairs = [(a % TOWERS_PER_SIDE, b % TOWERS_PER_SIDE), (a / TOWERS_PER_SIDE, b / TOWERS_PER_SIDE)];
+        let mut d = 0usize;
+        for (x, y) in pairs {
+            let raw = (x as i64 - y as i64).rem_euclid(TOWERS_PER_SIDE as i64) as usize;
+            d = d.max(raw.min(TOWERS_PER_SIDE - raw));
+        }
+        d
+    }
 
     #[test]
-    fn nets_join_neighbouring_towers() {
+    fn nets_are_scattered_over_a_spread_of_lengths() {
         let plan = generate_planned(11);
-        let mut cross = 0usize;
-        let mut lengths: Vec<usize> = Vec::new();
+        let towers = TOWERS_PER_SIDE * TOWERS_PER_SIDE;
+        assert_eq!(plan.nets.len(), towers * 12 / 2, "one net per pair of pins");
+
+        // The plan is still a perfect matching: all 768 pins, each on exactly one net.
+        let mut used = std::collections::HashMap::new();
         for net in &plan.nets {
-            let Some(len) = net.len else {
-                continue;
-            };
-            if tower_of(net.from.0, net.from.1) != tower_of(net.to.0, net.to.1) {
-                cross += 1;
-                lengths.push(len);
-            }
+            assert!(pin_dir(net.from.0, net.from.1).is_some(), "net end must be a pin");
+            assert!(pin_dir(net.to.0, net.to.1).is_some(), "net end must be a pin");
+            *used.entry(net.from).or_insert(0usize) += 1;
+            *used.entry(net.to).or_insert(0usize) += 1;
         }
-        println!(
-            "seed 11: {} nets planned, {cross} join two different towers",
-            plan.nets.len()
+        let all_pins: Vec<(usize, usize)> = packages().iter().flat_map(|p| p.pins.iter().map(|p| p.cell)).collect();
+        assert_eq!(used.len(), all_pins.len(), "every pin must carry exactly one net");
+        for pin in &all_pins {
+            assert_eq!(used.get(pin).copied().unwrap_or(0), 1, "pin {pin:?} is not on exactly one net");
+        }
+
+        let fallbacks = plan.fallbacks;
+        assert_eq!(
+            fallbacks,
+            plan.nets.iter().filter(|n| n.len.is_none()).count(),
+            "the fallback count must match the nets left on a via"
         );
         assert!(
-            cross >= plan.nets.len() * 3 / 4,
-            "only {cross} of {} nets join two different towers",
+            fallbacks * 20 <= plan.nets.len(),
+            "{fallbacks} of {} nets fell back to a via",
             plan.nets.len()
         );
+        let mut lengths: Vec<usize> = plan.nets.iter().filter_map(|n| n.len).collect();
         lengths.sort_unstable();
-        let n = lengths.len();
-        let mut buckets = [0usize; 6];
+        let total = lengths.len();
+
+        let mut bands = [0usize; 4];
         for &l in &lengths {
-            buckets[(l / 4).min(5)] += 1;
+            bands[band_of(l)] += 1;
         }
+        let mut pitch_hist = [0usize; 9];
+        for &l in &lengths {
+            pitch_hist[((l + CELLS_PER_TOWER / 2) / CELLS_PER_TOWER).min(8)] += 1;
+        }
+
+        // How far apart the towers a net joins are, in pitches.
+        let mut distance_hist = [0usize; 5];
+        let mut non_adjacent = 0usize;
+        for net in &plan.nets {
+            let d = tower_pitch_distance(tower_of(net.from.0, net.from.1), tower_of(net.to.0, net.to.1));
+            distance_hist[d] += 1;
+            if d >= 2 {
+                non_adjacent += 1;
+            }
+        }
+
         println!(
-            "net length in cells: min {}, median {}, max {}; histogram (4-cell buckets) {:?}",
+            "seed 11: {} nets, {fallbacks} fell back to a via at the source port\n\
+             net length in cells: min {}, median {}, max {}; bands (<=16, 17-48, 49-84, 85+) {bands:?}\n\
+             net length in tower pitches (rounded, capped at 8): {pitch_hist:?}\n\
+             endpoint towers by pitch distance: {distance_hist:?}, {non_adjacent} not adjacent",
+            plan.nets.len(),
             lengths[0],
-            lengths[n / 2],
-            lengths[n - 1],
-            buckets
+            lengths[total / 2],
+            lengths[total - 1],
         );
-        assert!(lengths[n - 1] <= NET_LEN_CAP, "a net exceeded the route cap");
-        assert!(lengths[n / 2] <= 16, "median net is not a local chip-to-chip run");
+
+        // A spread, not a lattice: the local band still leads, but never owns the board,
+        // and every other band carries a real population. The nearest-neighbour-only plan
+        // this replaced put all 384 nets in the local band at 5-7 cells, and fails here.
+        assert!(
+            bands[0] * 100 <= 60 * total,
+            "the local band holds {} of {total} nets: the spread has collapsed to a lattice",
+            bands[0]
+        );
+        for (b, n) in bands.iter().enumerate() {
+            assert!(
+                *n * 100 >= 4 * total,
+                "band {b} holds only {n} of {total} nets: {bands:?}"
+            );
+        }
+        assert!(lengths[total - 1] >= 5 * CELLS_PER_TOWER, "longest net is {} cells, under five pitches", lengths[total - 1]);
+        assert!(
+            lengths[total / 2] > CELLS_PER_TOWER,
+            "median net is {} cells: no better than the nearest-neighbour hop it replaced",
+            lengths[total / 2]
+        );
+        assert!(lengths[0] <= 16, "the shortest net is {} cells: local hops have gone", lengths[0]);
+        assert!(
+            non_adjacent * 100 >= 20 * plan.nets.len(),
+            "only {non_adjacent} of {} nets join towers that are not neighbours",
+            plan.nets.len()
+        );
     }
 
     // --- Continuity, on the torus and across diagonals. ---
