@@ -800,6 +800,92 @@ fn probe_face_study() {
     eprintln!("wrote {}", out.display());
 }
 
+/// Per-pass GPU timestamp profile plus a wall-clock frame time over the populated frame.
+///
+/// Gated behind `GIBSON_PROFILE=1` (the renderer only requests `TIMESTAMP_QUERY` when that
+/// variable is set at construction) and `GIBSON_PROFILE_SIZE=WxH` (default 2940x1912, the
+/// screensaver drawable). Prints medians of the per-pass timestamps plus the SUM, and the wall
+/// frame time measured with the same method as the on-screen numbers (incl. readback).
+#[test]
+fn probe_frame_profile() {
+    if std::env::var_os("GIBSON_PROFILE").is_none() {
+        return;
+    }
+    let (pw, ph) = std::env::var("GIBSON_PROFILE_SIZE")
+        .ok()
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+        })
+        .unwrap_or((2940, 1912));
+    // Report which timestamp capabilities this adapter actually exposes (the renderer refuses
+    // to enable profiling without both, so a silent "profiling disabled" needs an explanation).
+    {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        if let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        })) {
+            let f = adapter.features();
+            println!(
+                "timestamp features: query={} inside_encoders={} inside_passes={}",
+                f.contains(wgpu::Features::TIMESTAMP_QUERY),
+                f.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS),
+                f.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES),
+            );
+        }
+    }
+    let s = Settings {
+        bloom: 0.35,
+        motion_blur: 0.5,
+        grain: 0.03,
+        crt: 0.35,
+        ..settings()
+    };
+    let mut r = match renderer_at(pw, ph, 1.0, &s) {
+        Some(r) => r,
+        None => return,
+    };
+    let (towers, pulses, pose) = populated_frame();
+    let frame = empty_frame(3.0, pose, &s, &towers, &pulses);
+    println!(
+        "probe_frame_profile: {pw}x{ph} towers={} pulses={}",
+        towers.len(),
+        pulses.len()
+    );
+    // Warm up (first-use allocations, pipeline caches).
+    let _ = r.render_to_rgba(&frame).expect("warmup frame");
+
+    const N: u32 = 3;
+    let t0 = std::time::Instant::now();
+    for _ in 0..N {
+        let _ = r.render_to_rgba(&frame).expect("timed frame");
+    }
+    let wall = t0.elapsed().as_secs_f64() * 1000.0 / N as f64;
+    println!("wall: {wall:.1} ms/frame (incl. readback, {N} frames)");
+
+    let mut values: Vec<(&'static str, Vec<f64>)> = Vec::new();
+    for _ in 0..5 {
+        for (name, ms) in r.profile_frame(&frame).expect("profile frame") {
+            match values.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, v)) => v.push(ms),
+                None => values.push((name, vec![ms])),
+            }
+        }
+    }
+    println!("--- GPU pass times (median of 5, ms) ---");
+    let mut total = 0.0;
+    for (name, mut v) in values {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let med = v[v.len() / 2];
+        total += med;
+        println!("{name:<22} {med:7.3}");
+    }
+    println!("{:<22} {total:7.3}", "SUM");
+}
+
 fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: &[u8]) {
     let file = std::fs::File::create(path).expect("create probe png");
     let buf = std::io::BufWriter::new(file);

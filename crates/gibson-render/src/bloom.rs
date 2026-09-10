@@ -1,11 +1,27 @@
 //! Bloom chain: prefilter at 1/2 res, 13-tap downsamples to 1/32, then additive 3x3-tent
 //! upsamples back up so the final half-res level carries the whole soft bloom.
 
+use crate::profile::Profile;
 use crate::shaders;
 use crate::targets::HDR_FORMAT;
 
 /// Chain length: levels at 1/2, 1/4, 1/8, 1/16, 1/32 of the render resolution.
 pub const LEVELS: usize = 5;
+
+/// Timestamp names for the profiling pass labels.
+const PREFILTER_NAME: &str = "bloom prefilter";
+const DOWN_NAMES: [&str; LEVELS - 1] = [
+    "bloom down 1/4",
+    "bloom down 1/8",
+    "bloom down 1/16",
+    "bloom down 1/32",
+];
+const UP_NAMES: [&str; LEVELS - 1] = [
+    "bloom up 1/16",
+    "bloom up 1/8",
+    "bloom up 1/4",
+    "bloom up 1/2",
+];
 
 #[allow(dead_code)]
 struct Level {
@@ -153,8 +169,9 @@ impl Bloom {
         self.levels.first().map(|l| &l.view)
     }
 
-    /// Record the whole bloom chain. `encoder` must not have an open pass.
-    pub fn run(&self, encoder: &mut wgpu::CommandEncoder) {
+    /// Record the whole bloom chain. `encoder` must not have an open pass. When `profile` is
+    /// supplied each fullscreen pass records a timestamp pair.
+    pub fn run(&self, encoder: &mut wgpu::CommandEncoder, mut profile: Option<&mut Profile>) {
         if self.levels.len() != LEVELS || !self.usable() {
             return;
         }
@@ -168,6 +185,8 @@ impl Bloom {
             &self.prefilter,
             &self.levels[0],
             wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+            profile.as_deref_mut(),
+            PREFILTER_NAME,
         );
         // Downsample 1/2 -> 1/4 -> 1/8 -> 1/16 -> 1/32.
         for i in 0..LEVELS - 1 {
@@ -177,6 +196,8 @@ impl Bloom {
                 &self.down,
                 &self.levels[i + 1],
                 wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                profile.as_deref_mut(),
+                DOWN_NAMES[i],
             );
         }
         // Upsample back up, accumulating additively onto each level.
@@ -187,10 +208,13 @@ impl Bloom {
                 &self.up,
                 &self.levels[i],
                 wgpu::LoadOp::Load,
+                profile.as_deref_mut(),
+                UP_NAMES[i],
             );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn blit(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -198,7 +222,13 @@ impl Bloom {
         pipeline: &wgpu::RenderPipeline,
         target: &Level,
         load: wgpu::LoadOp<wgpu::Color>,
+        mut profile: Option<&mut Profile>,
+        name: &'static str,
     ) {
+        let tw = match profile.as_deref_mut() {
+            Some(p) => p.pass(name),
+            None => None,
+        };
         let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("gibson-bloom-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -211,7 +241,7 @@ impl Bloom {
                 },
             })],
             depth_stencil_attachment: None,
-            timestamp_writes: None,
+            timestamp_writes: tw,
             occlusion_query_set: None,
             multiview_mask: None,
         });

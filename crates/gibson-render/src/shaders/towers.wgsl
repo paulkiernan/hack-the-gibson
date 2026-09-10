@@ -44,6 +44,8 @@ const PANELS: u32 = 32u;
 // Band-to-panel stride: consecutive bands read panels (face_layer + band*7) % 32, which walks
 // the whole panel ring in 32/7 steps and keeps adjacent bands on unrelated panels.
 const BAND_STEP: u32 = 7u;
+// Faces farther than this skip text sampling entirely (see the cost-control branch below).
+const FAR_TEXT_CUTOFF: f32 = 450.0;
 
 // Deterministic scalar hashes (no sin; WebGL2-safe mediump-friendly).
 fn hash1(p: f32) -> f32 {
@@ -122,6 +124,21 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (in.face == 4u) {
         // Overhead the glass roof reads teal-green (film #3EE8C8) instead of the deep blue body.
         col = mix(col, vec3<f32>(0.20, 0.92, 0.80) * u.tower_body.a * (0.8 + 0.4 * vgrad), 0.55);
+    }
+
+    // Cost control: beyond this distance the face's own text is attenuated to a few percent
+    // (exp(-dist/190)) and the haze blend has already taken over most of the color, so the two
+    // atlas fetches, the block hashes and the wipe math are not worth running. Those fragments
+    // fall through to the body + haze path below with no visible difference (both fetches below
+    // use an explicit LOD / textureLoad, which is legal inside this non-uniform branch).
+    if (in.face != 4u && dist > FAR_TEXT_CUTOFF) {
+        var far_col = u.tower_body.rgb * u.tower_body.a * (0.8 + 0.4 * vgrad);
+        far_col = far_col * exp(-dist / 190.0);
+        far_col = mix(far_col, u.haze.rgb * 0.9, smoothstep(120.0, 620.0, dist));
+        let far_fog = 1.0 - smoothstep(u.time_fog_grid.y, u.time_fog_grid.z, dist);
+        far_col = far_col * far_fog;
+        far_col = far_col + u.haze.rgb * 1.35 * (1.0 - far_fog) * (1.0 - far_fog);
+        return vec4<f32>(far_col, u.tower_body.a * far_fog);
     }
 
     // Sampling uv. A side band maps the full panel height over its slice of the face, so the
