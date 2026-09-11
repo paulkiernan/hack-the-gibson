@@ -28,7 +28,11 @@ struct FrameUniform {
 @group(0) @binding(0) var<uniform> u: FrameUniform;
 @group(0) @binding(1) var color_tex: texture_2d<f32>;
 @group(0) @binding(2) var color_smp: sampler;
-@group(0) @binding(3) var depth_tex: texture_depth_2d;
+// The depth the frame was drawn with, carried in a colour attachment rather than read from the
+// depth texture: `textureLoad` on `texture_depth_2d` has no GLSL equivalent, so fetching it
+// directly compiles on Metal/Vulkan/DX12/WebGPU and fails on the WebGL2 fallback. Read with
+// `textureLoad` at the same integer texel as before, so the values are unchanged.
+@group(0) @binding(3) var depth_tex: texture_2d<f32>;
 
 const MAX_VEL_PX: f32 = 20.0;
 const TAPS: i32 = 8;
@@ -56,7 +60,7 @@ fn vs_main(in: VsIn) -> VsOut {
 @fragment
 fn fs_main(in: FsIn) -> @location(0) vec4<f32> {
     let uv = in.uv;
-    let depth = textureLoad(depth_tex, vec2<i32>(in.pos.xy), 0);
+    let depth = textureLoad(depth_tex, vec2<i32>(in.pos.xy), 0).r;
     if (depth >= 1.0) {
         return textureSampleLevel(color_tex, color_smp, uv, 0.0);
     }

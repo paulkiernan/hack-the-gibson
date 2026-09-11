@@ -2,8 +2,13 @@
 //!
 //! Bootstraps the full-viewport `<canvas id="gibson">`, reads settings from the URL query
 //! string, drives `gibson-core` from a `requestAnimationFrame` loop, and mirrors viewport
-//! changes into the renderer. Startup or persistent render failures are written into the
-//! `#status` element (the canvas stays black) rather than panicking the module.
+//! changes into the renderer.
+//!
+//! Nothing in here is allowed to fail quietly. [`boot`] returns a promise that rejects on any
+//! startup failure, the same failure is written into `#status` and the console, a panic is
+//! turned into a `#status` line as well as a console trace, and wgpu validation errors are
+//! reported through the renderer's uncaptured-error handler. A black canvas with an empty
+//! `#status` is a bug in this file, not an expected state.
 //!
 //! The crate is `wasm32`-only: native workspace builds compile an empty rlib and this file is
 //! never compiled on a native host.
@@ -34,9 +39,12 @@ const MAX_CONSECUTIVE_FRAME_ERRORS: u32 = 10;
 const CANVAS_ID: &str = "gibson";
 const STATUS_ID: &str = "status";
 
-/// Human-readable failure shown in `#status` when a renderer cannot start (no WebGPU and no
-/// WebGL2, or the browser declines a device).
-const UNAVAILABLE_MESSAGE: &str =
+/// Prefix on every startup failure written to `#status`.
+const FAILED_PREFIX: &str = "Hack the Gibson could not start";
+
+/// Extra hint appended when the failure is that there is no usable GPU adapter, because that is
+/// the one startup failure a visitor can act on by changing browser.
+const NO_ADAPTER_HINT: &str =
     "WebGPU/WebGL2 unavailable - try Chrome 113+, Safari 26+, or Firefox with WebGPU enabled";
 
 /// Long-lived per-page state shared by the animation loop and the resize listener.
@@ -46,22 +54,70 @@ struct State {
     /// Set by the `resize` listener; consumed on the next animation frame.
     resize_pending: Cell<bool>,
     consecutive_errors: Cell<u32>,
-    /// The animation-frame callback, stored so it can re-schedule itself and outlive `start`.
+    /// The animation-frame callback, stored so it can re-schedule itself and outlive `boot`.
     raf: RefCell<Option<Closure<dyn FnMut(f64)>>>,
     /// The resize listener handle, kept alive for the life of the page.
     resize_listener: RefCell<Option<Closure<dyn FnMut()>>>,
 }
 
-/// Called automatically when the module loads. Never panics; failures land in `#status`.
-#[wasm_bindgen(start)]
-pub async fn start() -> Result<(), JsValue> {
+/// Entry point the host page calls once the wasm module has initialized.
+///
+/// Returns a promise that rejects on any startup failure so the page can surface it, after the
+/// same failure has been written to `#status` and the console.
+///
+/// This is deliberately *not* a `#[wasm_bindgen(start)]` function. A start function returns
+/// nothing to the page, so a future that is never polled - or a panic that aborts it - leaves a
+/// black canvas and an empty `#status` with nothing anywhere to say why. An explicit promise the
+/// page can `.catch()` closes that hole.
+#[wasm_bindgen]
+pub fn boot() -> js_sys::Promise {
+    install_diagnostics();
+    wasm_bindgen_futures::future_to_promise(async move {
+        match run().await {
+            Ok(()) => Ok(JsValue::UNDEFINED),
+            Err(message) => {
+                report(&message);
+                Err(JsValue::from_str(&message))
+            }
+        }
+    })
+}
+
+/// Make every failure path reach a human: panics (which a wasm trap would otherwise swallow)
+/// and the `log` crate.
+fn install_diagnostics() {
+    // Prints the panic and a stack trace to the console; chaining the hook below behind it keeps
+    // both, and adds the `#status` line that a console-only hook cannot.
     console_error_panic_hook::set_once();
-    let _ = console_log::init_with_level(log::Level::Info);
-    if let Err(message) = run().await {
-        log::error!("gibson-web: startup failed: {message}");
-        set_status(&format!("{UNAVAILABLE_MESSAGE} ({message})"));
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // A panic aborts the future, so no `Err` is ever returned to the page: this line is the
+        // only route from "panicked" to a visible message. `#status` is written first because a
+        // message in the middle of the screen is much harder to miss than a console line.
+        report(&format!("internal error: {info}"));
+        previous(info);
+    }));
+    if console_log::init_with_level(log::Level::Info).is_err() {
+        // Not fatal - someone else owns the logger - but it changes where `log` output goes, so
+        // say so rather than letting the next silence be a mystery.
+        web_sys::console::warn_1(&JsValue::from_str(
+            "gibson-web: a `log` logger was already installed; using it",
+        ));
     }
-    Ok(())
+}
+
+/// Report a failure: `#status` (the visitor sees it), the console (the developer sees the
+/// detail), and the `log` pipeline.
+///
+/// The console line goes out twice on a healthy build - once through `log` and once directly -
+/// and that is deliberate: this is also the panic path, where the logger itself may be what
+/// broke. `#status` is written first because a message in the middle of the screen is much
+/// harder to miss than a console line.
+fn report(message: &str) {
+    let text = format!("{FAILED_PREFIX}: {message}");
+    set_status(&text);
+    log::error!("gibson-web: {text}");
+    web_sys::console::error_1(&JsValue::from_str(&format!("gibson-web: {text}")));
 }
 
 async fn run() -> Result<(), String> {
@@ -93,10 +149,11 @@ async fn run() -> Result<(), String> {
     let target = wgpu::SurfaceTarget::Canvas(canvas.clone());
     let gibson = Gibson::new(SurfaceTarget::Window(target), width, height, scale, settings)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| startup_message(&e))?;
 
     clear_status();
     log::info!("gibson-web: running on {}", backend_name(&window));
+    mark_running();
 
     let state = Rc::new(State {
         gibson: RefCell::new(gibson),
@@ -107,6 +164,31 @@ async fn run() -> Result<(), String> {
         resize_listener: RefCell::new(None),
     });
     start_loop(&window, state)
+}
+
+/// Text for a startup failure.
+///
+/// An adapter/device failure gets the "which browser to try" hint, because that is the only
+/// startup failure a visitor can act on. Everything else already names the broken thing
+/// precisely and gets no unrelated advice.
+fn startup_message(error: &gibson_core::GibsonError) -> String {
+    match error {
+        gibson_core::GibsonError::Render(
+            gibson_render::RenderError::NoAdapter | gibson_render::RenderError::NoDevice(_),
+        ) => format!("{NO_ADAPTER_HINT} ({error})"),
+        other => other.to_string(),
+    }
+}
+
+/// Tell the page (and the bootstrap watchdog in `index.html`) that frames are on the way.
+fn mark_running() {
+    if let Some(window) = web_sys::window() {
+        let _ = js_sys::Reflect::set(
+            &window,
+            &JsValue::from_str("gibsonState"),
+            &JsValue::from_str("running"),
+        );
+    }
 }
 
 fn start_loop(window: &Window, state: Rc<State>) -> Result<(), String> {
@@ -145,7 +227,7 @@ fn start_loop(window: &Window, state: Rc<State>) -> Result<(), String> {
                         log::error!(
                             "gibson-web: stopping render loop after {n} consecutive frame errors"
                         );
-                        set_status(&format!("Rendering failed: {e}"));
+                        report(&format!("rendering failed: {e}"));
                         return;
                     }
                 }

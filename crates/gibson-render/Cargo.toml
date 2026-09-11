@@ -14,6 +14,11 @@ bytemuck = { workspace = true }
 glam = { workspace = true }
 log = { workspace = true }
 
+# The uncaptured-device-error handler writes to the browser console directly, so it still
+# reaches a human when no `log` logger is installed.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { workspace = true, features = ["console"] }
+
 [dev-dependencies]
 gibson-atlas = { workspace = true }
 gibson-floor = { workspace = true }

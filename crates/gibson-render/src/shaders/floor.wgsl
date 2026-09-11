@@ -188,8 +188,17 @@ fn is_legend(g: u32) -> bool {
     return g == 5u || g == 7u;
 }
 
+// The floor is the only pass that writes depth (`depth_write_enabled: true`), so it is also the
+// only pass that writes this fragment's depth to the pass's second attachment. The motion-blur
+// pass reprojects from that attachment instead of fetching the depth texture, which the GLSL
+// backend cannot express.
+struct FsOut {
+    @location(0) color: vec4<f32>,
+    @location(1) depth: f32,
+}
+
 @fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VsOut) -> FsOut {
     let wp = in.world;
     let cam = u.camera_pos.xyz;
     let dist = distance(wp, cam);
@@ -396,5 +405,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     col += (legend * 0.85 + marker * 0.9 + marker_ring * 0.7) * silk_col * brightness * is_silk;
 
     col = col * cell_ok * fog;
-    return vec4<f32>(col, 1.0);
+    var out: FsOut;
+    out.color = vec4<f32>(col, 1.0);
+    // `in.clip.z` is this fragment's depth exactly as the depth test sees it, so the carry and
+    // the depth buffer agree texel for texel.
+    out.depth = in.clip.z;
+    return out;
 }

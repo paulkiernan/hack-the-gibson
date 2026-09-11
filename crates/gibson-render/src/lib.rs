@@ -2,7 +2,9 @@
 //!
 //! One HDR frame chain draws the whole Gibson:
 //!
-//! 1. floor quad (analytic PCB-trace SDF over the 96x96 floor map) into `color_a` + depth,
+//! 1. floor quad (analytic PCB-trace SDF over the 96x96 floor map) into `color_a` + depth, and
+//!    the fragment's depth into a second attachment (the "depth carry", see
+//!    [`targets::SceneTargets::depth_color`]),
 //! 2. instanced translucent tower boxes (atlas text, per-block animation) over it,
 //! 3. additive lane pulse ribbons,
 //! 4. bloom (prefilter + 13-tap down + 3x3 tent up; skipped at `bloom == 0`),
@@ -11,6 +13,10 @@
 //!    the CRT pass is active, into a signal-resolution HDR texture,
 //! 7. the CRT pass (Lottes scanline emulation) reconstructs that signal onto the final target at
 //!    full output resolution.
+//!
+//! Steps 1 and 2-3 are separate render passes: the depth carry rides in the floor's pass, which
+//! blends nothing, so the blending towers and pulses can keep their single-target pipelines
+//! (see [`targets::depth_color_target`]).
 //!
 //! Steps 1-6 run at the *scene* size: the output size, unless `settings.crt > 0`, in which case
 //! they run at a smaller signal resolution and step 7 expands it. That split is what makes the
@@ -21,9 +27,13 @@
 //!
 //! WebGL2 constraints every pipeline in this crate respects: no storage buffers, no compute
 //! shaders, one uniform buffer <= 16 KiB per binding, per-instance data via instance-step vertex
-//! buffers, `texture_2d_array<f32>` allowed, depth read via `textureLoad` on `texture_depth_2d`,
-//! `Rgba16Float` + `Depth32Float` targets, no MSAA. Resource shapes (bind groups per pipeline,
-//! samplers, vertex strides) fit `Limits::downlevel_webgl2_defaults()`.
+//! buffers, `texture_2d_array<f32>` allowed, no depth-texture reads (`textureLoad` on
+//! `texture_depth_2d` has no GLSL equivalent, so the depth the motion blur reprojects from is
+//! carried in an `R32Float` colour attachment -- see
+//! [`targets::SceneTargets::depth_color`]), no independent blend (so no pipeline mixes blended
+//! and unblended colour targets), `Rgba16Float` + `Depth32Float` targets, no MSAA. Resource
+//! shapes (bind groups per pipeline, samplers, vertex strides) fit
+//! `Limits::downlevel_webgl2_defaults()`.
 
 pub mod shaders {
     //! Compile-time WGSL sources. A missing file fails the build.
@@ -267,7 +277,6 @@ fn scene_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 const ATLAS_MIPS: u32 = 3;
 
 fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) -> wgpu::Texture {
-    let started = std::time::Instant::now();
     let tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("gibson-atlas"),
         size: wgpu::Extent3d {
@@ -359,10 +368,7 @@ fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) 
         w = nw;
         h = nh;
     }
-    log::debug!(
-        "gibson-render: atlas uploaded with {ATLAS_MIPS} mips in {:.1} ms",
-        started.elapsed().as_secs_f64() * 1000.0
-    );
+    log::debug!("gibson-render: atlas uploaded with {ATLAS_MIPS} mips");
     tex
 }
 
@@ -461,6 +467,19 @@ impl Renderer {
             .await
             .map_err(|e| RenderError::NoDevice(e.to_string()))?;
         log::info!("gibson-render: device + queue created");
+
+        // Any validation error raised *outside* an error scope (everything after startup: a
+        // frame-time bind group, a lost device, a shader that only fails on one backend) is
+        // otherwise completely invisible on the web - the canvas simply stops changing and no
+        // host callback ever fires. Report it where a human will see it: the browser console.
+        // Errors raised inside the scopes below still go to those scopes.
+        device.on_uncaptured_error(std::sync::Arc::new(|error: wgpu::Error| {
+            log::error!("gibson-render: uncaptured device error: {error}");
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::error_1(
+                &format!("gibson-render: uncaptured device error: {error}").into(),
+            );
+        }));
 
         let mut surface_format = None;
         if let Some(surf) = &surface {
@@ -930,15 +949,34 @@ impl Renderer {
             };
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gibson-floor-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.targets.view_a,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.targets.view_a,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.targets.depth_color_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        // `r` is the only channel an `R32Float` attachment stores; 1.0 matches the
+                        // depth clear below, so "no geometry here" reads the same from either
+                        // source (the motion blur treats depth >= 1.0 as background).
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 1.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 0.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.targets.depth_view,
                     depth_ops: Some(wgpu::Operations {
@@ -1020,17 +1058,41 @@ impl Renderer {
             self.pulses.draw(&mut rp, frame.pulses.len() as u32);
             drop(rp);
         } else {
+            // Two passes rather than one, because the floor pass carries depth in a second
+            // colour attachment and a pipeline whose colour targets disagree on blend or write
+            // mask needs `INDEPENDENT_BLEND`, which WebGL2 does not have. The floor blends
+            // nothing, so the carry rides there; the towers and pulses blend, so they draw over
+            // the floor in the next pass, which does not bind the carry at all.
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gibson-scene-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.targets.view_a,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
+                label: Some("gibson-floor-pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.targets.view_a,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.targets.depth_color_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        // `r` is the only channel an `R32Float` attachment stores; 1.0 matches the
+                        // depth clear below, so "no geometry here" reads the same from either
+                        // source (the motion blur treats depth >= 1.0 as background).
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 1.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 0.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.targets.depth_view,
                     depth_ops: Some(wgpu::Operations {
@@ -1046,12 +1108,36 @@ impl Renderer {
             rp.set_bind_group(0, &self.scene_bg, &[]);
             rp.set_pipeline(&self.floor.pipeline);
             self.floor.draw(&mut rp);
+            drop(rp);
+
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-towers-pulses-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.targets.view_a,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.targets.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_bind_group(0, &self.scene_bg, &[]);
             rp.set_pipeline(&self.towers.pipeline);
-            self.towers
-                .draw(&mut rp, frame.towers.len() as u32);
+            self.towers.draw(&mut rp, frame.towers.len() as u32);
             rp.set_pipeline(&self.pulses.pipeline);
-            self.pulses
-                .draw(&mut rp, frame.pulses.len() as u32);
+            self.pulses.draw(&mut rp, frame.pulses.len() as u32);
         }
 
         // --- Bloom (skipped when settings.bloom == 0). ---
@@ -1281,7 +1367,7 @@ fn build_view_bind_groups(
     let mk = |layout: &wgpu::BindGroupLayout,
               color: &wgpu::TextureView,
               bloom_view: Option<&wgpu::TextureView>,
-              depth: bool| {
+              depth_carry: bool| {
         let mut entries = vec![
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -1301,10 +1387,10 @@ fn build_view_bind_groups(
                 binding: 3,
                 resource: wgpu::BindingResource::TextureView(bv),
             });
-        } else if depth {
+        } else if depth_carry {
             entries.push(wgpu::BindGroupEntry {
                 binding: 3,
-                resource: wgpu::BindingResource::TextureView(&targets.depth_view),
+                resource: wgpu::BindingResource::TextureView(&targets.depth_color_view),
             });
         }
         device.create_bind_group(&wgpu::BindGroupDescriptor {

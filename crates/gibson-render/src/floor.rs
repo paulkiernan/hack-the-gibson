@@ -1,5 +1,6 @@
 //! PCB floor quad pass.
 
+use crate::targets::depth_color_target;
 use crate::{shaders, RenderError};
 use wgpu::util::DeviceExt;
 
@@ -62,11 +63,14 @@ impl Floor {
                 module: &module,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    depth_color_target(),
+                ],
             }),
             multiview_mask: None,
             cache: None,

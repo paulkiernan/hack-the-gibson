@@ -832,6 +832,7 @@ dependencies = [
  "log",
  "png",
  "pollster",
+ "web-sys",
  "wgpu",
 ]
 
@@ -860,6 +861,7 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "gibson-core",
+ "gibson-render",
  "gibson-types",
  "js-sys",
  "log",

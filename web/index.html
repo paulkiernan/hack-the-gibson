@@ -20,12 +20,49 @@
   <div id="support">
     <script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="paulynomial" data-color="#BD5FFF" data-emoji="" data-font="Lato" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="#ffffff" data-coffee-color="#FFDD00"></script>
   </div>
+  <!-- Bootstrap watchdog. The module script below reports its own failures, but if it never runs
+       at all - a stale cached bundle, a blocked script, a browser too old to parse it - nothing
+       would say so, and a black page with no message is the worst outcome. Registered before the
+       module loads and deliberately silent once frames are running so a late third-party error
+       (the support widget) cannot take over the status line. -->
+  <script>
+    window.gibsonState = "loading";
+    (function () {
+      function describe(reason) {
+        if (reason && reason.message) return reason.message;
+        return String(reason);
+      }
+      function show(text) {
+        if (window.gibsonState === "running") return; // report console-only from here on
+        var el = document.getElementById("status");
+        if (el && !el.textContent) el.textContent = "Hack the Gibson could not start: " + text;
+      }
+      window.addEventListener("error", function (event) {
+        console.error("gibson: uncaught error", event.error || event.message);
+        show(describe(event.error || event.message));
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        console.error("gibson: unhandled rejection", event.reason);
+        show(describe(event.reason));
+      });
+      window.setTimeout(function () {
+        if (window.gibsonState === "loading") {
+          show("the module never started (see the browser console)");
+        }
+      }, 20000);
+    })();
+  </script>
   <script type="module">
-    import init from './pkg/gibson_web.js';
-    init().catch((err) => {
+    import init, { boot } from './pkg/gibson_web.js';
+    init().then(() => boot()).catch((err) => {
+      window.gibsonState = "failed";
       const status = document.getElementById('status');
-      if (status) status.textContent = 'Failed to load the WebAssembly module: ' + err;
-      console.error('gibson: module init failed', err);
+      // Rust reports startup failures itself (with the console detail); this only fills the gap
+      // when the failure happened before any Rust ran, such as the module failing to load.
+      if (status && !status.textContent) {
+        status.textContent = 'Hack the Gibson could not start: ' + (err && err.message ? err.message : err);
+      }
+      console.error('gibson: startup failed', err);
     });
   </script>
 </body>
