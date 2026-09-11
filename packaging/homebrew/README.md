@@ -95,8 +95,11 @@ caveat. Neither is a correctness problem in a tap.
 - `screen_saver "Gibson.saver"` installs the bundle into `~/Library/Screen Savers`.
   The stanza's path is relative to the unpacked archive, which contains exactly
   one top-level item: `Gibson.saver` (verified by listing the published zip).
-- `depends_on macos: ">= :sonoma"` matches the bundle's `LSMinimumSystemVersion`
-  of 14.0 and the `macos-15` runner the release is built on.
+- `depends_on macos: :sonoma` matches the bundle's `LSMinimumSystemVersion` of
+  14.0 and the `macos-15` runner the release is built on. The symbol form is
+  required: Homebrew deprecated the string comparison form (`">= :sonoma"`),
+  and `brew tap` warns and names the line. Note `ruby -c` accepts the
+  deprecated form happily, so only a real `brew tap` catches it.
 - The bundle's display name is **"The Gibson"** (`CFBundleName` and
   `CFBundleDisplayName` in `platform/macos/Info.plist`), which is the name the
   System Settings list shows, hence `name "The Gibson"` rather than the project

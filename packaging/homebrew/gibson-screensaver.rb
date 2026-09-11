@@ -20,7 +20,7 @@ cask "gibson-screensaver" do
 
   # The bundle declares LSMinimumSystemVersion 14.0, and that is what the
   # release workflow builds and tests against.
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   # Moves Gibson.saver into ~/Library/Screen Savers.
   screen_saver "Gibson.saver"
