@@ -84,6 +84,7 @@ pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (
 arch=('x86_64')
 url='https://github.com/paulkiernan/gibson-screensaver'
 license=('GPL-3.0-or-later')
+install='gibson-screensaver.install'
 
 depends=(
   'glibc'

@@ -3,12 +3,13 @@
 #   makepkg --printsrcinfo > .SRCINFO
 # and commit the result. Regenerate again after ANY PKGBUILD edit that shows up
 # in this file (pkgver, pkgrel, source, sha256sums, depends, optdepends,
-# pkgdesc, arch, license, provides, conflicts). See ../aur/README.md.
+# pkgdesc, arch, license, provides, conflicts, install). See ../aur/README.md.
 pkgbase = gibson-screensaver-bin
 	pkgdesc = Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); prebuilt xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)
 	pkgver = 2.1.0
 	pkgrel = 1
 	url = https://github.com/paulkiernan/gibson-screensaver
+	install = gibson-screensaver-bin.install
 	arch = x86_64
 	license = GPL-3.0-or-later
 	depends = glibc

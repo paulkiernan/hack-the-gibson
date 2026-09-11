@@ -202,8 +202,9 @@ code. The `PKGBUILD`s, `.SRCINFO` files and the submission runbook are in
 now with `makepkg -si` from either directory. Both install the binary as
 `/usr/bin/gibson-screensaver` and the descriptor as
 `/usr/share/xscreensaver/config/gibson-screensaver.xml` — system paths, rather
-than the per-user ones the manual steps below use — and neither adds the
-`programs:` line for you, so that last step is the same either way.
+than the per-user ones the manual steps below use. Neither edits
+`~/.xscreensaver` for you, because that file is yours and xscreensaver rewrites
+it wholesale, but both print the exact `programs:` line to add after install.
 
 `gibson-app` doubles as an xscreensaver "external window" hack. The
 `gibson-screensaver-linux-x86_64.tar.gz` asset on the

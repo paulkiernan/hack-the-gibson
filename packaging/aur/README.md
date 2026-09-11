@@ -29,7 +29,7 @@ The prebuilt alternative is in [`../aur-bin/`](../aur-bin/) - see
 > **Every later `PKGBUILD` edit that touches a field appearing in `.SRCINFO`
 > requires regenerating it again** (`pkgver`, `pkgrel`, `source`, `sha256sums`,
 > `depends`, `makedepends`, `optdepends`, `provides`, `conflicts`, `pkgdesc`,
-> `arch`, `license`). A stale `.SRCINFO` is the most common reason an AUR page
+> `arch`, `license`, `install`). A stale `.SRCINFO` is the most common reason an AUR page
 > shows the wrong version, and a `.SRCINFO` that disagrees with the `PKGBUILD`
 > can get a push rejected.
 >
@@ -142,13 +142,20 @@ git config user.email 'paulkiernan1@gmail.com'
 
 ### 3. What the first commit must contain
 
-`PKGBUILD`, `.SRCINFO`, and the package-source licence. Copy all three of these
-from this repository:
+`PKGBUILD`, `.SRCINFO`, the pacman install hook, and the package-source
+licence. Copy all four of these from this repository:
 
 ```sh
 cp /path/to/repo/packaging/aur/PKGBUILD /path/to/repo/packaging/aur/.SRCINFO .
+cp /path/to/repo/packaging/aur/gibson-screensaver.install .
 cp /path/to/repo/packaging/aur/LICENSE .
 ```
+
+The `.install` file is not optional dressing: `makepkg` fails outright if the
+file named by `install=` is missing, and the AUR only has the files you commit.
+For `gibson-screensaver-bin` the hook is named
+`gibson-screensaver-bin.install` instead, and everything else about the step is
+the same.
 
 **Why the `LICENSE` file is there.** This rule has changed over the years, so it
 was checked against the live guidelines on 2026-09-11 rather than assumed. The

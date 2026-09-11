@@ -1,0 +1,34 @@
+# Printed by pacman after install. The package deliberately does not edit
+# ~/.xscreensaver: that file belongs to the user, xscreensaver rewrites it
+# wholesale, and a package has no business owning a line in it. So the one
+# manual step is explained here rather than done silently.
+
+post_install() {
+	cat <<'EOF'
+
+gibson-screensaver is installed, but xscreensaver will not list it until you
+add it to your own configuration. Add this line to the "programs:" list in
+~/.xscreensaver (run xscreensaver-settings once first if that file does not
+exist yet):
+
+    gibson-screensaver
+
+It takes no arguments; the daemon and the settings dialog each pass the window
+they want it to draw into. It appears in the hack list as "Hack the Gibson".
+
+This is an X11 hack. On Wayland there is no xscreensaver, so run it from your
+idle daemon instead, for example:
+
+    swayidle -w timeout 300 'gibson-screensaver --fullscreen'
+
+It needs a working Vulkan driver. If it fails to start, install the driver for
+your GPU (see this package's optdepends) and check with vulkaninfo.
+
+EOF
+}
+
+post_upgrade() {
+	# Nothing to say on upgrade: the programs: line, if present, still works,
+	# because neither the binary name nor its arguments have changed.
+	:
+}
