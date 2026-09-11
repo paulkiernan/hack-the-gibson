@@ -46,6 +46,33 @@ console_log = "1"
 x11-dl = "2"
 windows-sys = "0.59"
 
+# Lint policy. Each member opts in with `[lints] workspace = true`, so there is exactly one
+# place a level is set and a local `cargo clippy` reports exactly what CI does.
+#
+# Cargo's own mechanism (1.74+, and `rust-toolchain.toml` pins stable well past that) rather
+# than `-D warnings` spelled into every CI invocation or `#![deny]` attributes in the sources:
+#   - a level set in the manifest cannot be forgotten by a workflow that runs clippy with
+#     different flags, and there is no way to lint a crate that skipped the policy;
+#   - `#![deny]` in a source file is invisible until you open that file, and it silently
+#     applies to test/example code that the attribute's author never considered.
+#
+# `clippy::all` is the default set (correctness, suspicious, style, complexity, perf) - that is
+# the styleguide this repository enforces. It is deliberately not extended with
+# `clippy::pedantic`, which is full of opinions this codebase argues with on purpose (the
+# renderer and the generators are built out of deliberate numeric casts and bit twiddling).
+# No `clippy::allow`-style escape hatch is configured: an `#[allow]` in the source with a
+# comment saying why is the only way to silence a lint, and it has to be paid for in review.
+#
+# `rust`'s `unused` group rides along so a build fails on dead code, an unused import or an
+# unused `mut` as well: the tree is clean of those today, and the wasm and host targets are
+# linted separately (see .github/workflows/ci.yml) so a warning cannot hide in a cfg the
+# default build does not compile.
+[workspace.lints.rust]
+unused = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+
 # Release profile: the renderer spends its life emitting instanced draws; keep it fast.
 [profile.release]
 opt-level = 3

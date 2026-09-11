@@ -11,3 +11,8 @@ homepage.workspace = true
 gibson-types = { workspace = true }
 glam = { workspace = true }
 rand = { workspace = true }
+
+# Opt into the root Cargo.toml's [workspace.lints] policy: one place sets levels, so a local
+# `cargo clippy` reports exactly what CI does.
+[lints]
+workspace = true

@@ -13,3 +13,8 @@ serde = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+
+# Opt into the root Cargo.toml's [workspace.lints] policy: one place sets levels, so a local
+# `cargo clippy` reports exactly what CI does.
+[lints]
+workspace = true

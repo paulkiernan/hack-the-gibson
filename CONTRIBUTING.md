@@ -31,7 +31,11 @@ Then, before you push:
 make check
 ```
 
-`make help` lists every convenience target.
+`make help` lists every convenience target. CI gates four more things on a pull
+request - formatting, Clippy on the native workspace and on the wasm crate, and
+the commit messages - and each one is a target too: `make fmt-check`,
+`make lint`, `make lint-wasm` and `make commits`. They are cheap; run them
+before you push.
 
 ## Prerequisites
 
@@ -312,15 +316,27 @@ nightly rustfmt by hand.
 ```sh
 make fmt         # cargo fmt --all
 make fmt-check   # cargo fmt --all --check - what CI runs
-make lint        # cargo clippy --workspace --all-targets -- -D warnings
+make lint        # cargo clippy --workspace --exclude gibson-web --all-targets
+make lint-wasm   # the same for gibson-web, on wasm32
 ```
 
-CI runs the format check and Clippy with warnings denied, so both are required.
-`gibson-web` compiles to nothing on a native host, so to lint its real code add
-the target first:
+The lint *levels* are neither CI flags nor `#![deny]` attributes in the source:
+they are the root `Cargo.toml`'s `[workspace.lints]` table, which every member
+opts into with `[lints] workspace = true`. `clippy::all` (correctness,
+suspicious, style, complexity, perf) and rustc's `unused` group are `deny`
+there, so clippy fails on a warning with no `-D warnings` anywhere, and a run on
+your machine reports exactly what CI reports. No crate carries a blanket allow.
+An `#[allow]` in the source is fine when the lint is genuinely wrong there, but
+it has to say why in a comment, and it will be asked about in review.
+
+CI runs all of that in its `lint` job. `make lint` excludes one crate because
+`gibson-web` is `#![cfg(target_arch = "wasm32")]`: on a native host it compiles
+to nothing, so a native lint would prove nothing about it. Lint its real code
+with the target installed once:
 
 ```sh
-cargo clippy -p gibson-web --target wasm32-unknown-unknown -- -D warnings
+rustup target add wasm32-unknown-unknown
+make lint-wasm
 ```
 
 The tree was formatted once, in a single dedicated commit listed in
@@ -363,7 +379,34 @@ fix(web): stop the canvas rendering black, and report startup failures
 feat(floor): route nets planar with via-pair layer changes
 ```
 
-CI checks the shape. To get the type and scope lists in your editor:
+CI checks the shape, in the `lint` job. Three things about how it does it are
+worth knowing, because they are what make it usable rather than annoying:
+
+- **It judges only the commits a pull request adds.** The range starts at the
+  merge base, so the history from before this convention was adopted is never in
+  it. A pull request cannot fail on a message it did not write.
+- **The pull request title is checked too**, because a squash merge takes the
+  title as the commit subject. Title it the way you would title the commit.
+- **An unknown type or scope is rejected with the allowed set in the failure
+  message**, so fixing it takes one try rather than a hunt.
+
+The same gate runs locally:
+
+```sh
+make commits                  # the commits this branch adds on top of origin/main
+make commits BASE=origin/release
+```
+
+That is `scripts/check-commit-messages.sh <rev-range>`; with no argument it reads
+subjects from stdin, one per line, which is how you check a message before you
+commit it:
+
+```sh
+echo 'fix(render): stop wgpu refusing every frame as occluded' \
+  | scripts/check-commit-messages.sh
+```
+
+To get the type and scope lists in your editor:
 
 ```sh
 git config commit.template .gitmessage

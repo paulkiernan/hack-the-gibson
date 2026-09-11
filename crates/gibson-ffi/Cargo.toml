@@ -22,3 +22,8 @@ log = { workspace = true, features = ["std"] }
 # unified log); default features (logger/dashmap) unused - we hand-roll a
 # two-line Log impl over oslog::OsLog.
 oslog = { version = "0.2", default-features = false }
+
+# Opt into the root Cargo.toml's [workspace.lints] policy: one place sets levels, so a local
+# `cargo clippy` reports exactly what CI does.
+[lints]
+workspace = true

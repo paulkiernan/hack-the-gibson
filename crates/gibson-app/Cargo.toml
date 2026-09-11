@@ -38,3 +38,8 @@ windows-sys = { workspace = true, features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Console",
 ] }
+
+# Opt into the root Cargo.toml's [workspace.lints] policy: one place sets levels, so a local
+# `cargo clippy` reports exactly what CI does.
+[lints]
+workspace = true

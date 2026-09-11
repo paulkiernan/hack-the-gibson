@@ -21,3 +21,8 @@ pollster = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
+
+# Opt into the root Cargo.toml's [workspace.lints] policy: one place sets levels, so a local
+# `cargo clippy` reports exactly what CI does.
+[lints]
+workspace = true

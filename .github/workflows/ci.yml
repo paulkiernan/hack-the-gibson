@@ -17,6 +17,65 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # The fast gate: formatting, lints and commit messages. Kept in one job of its own
+  # rather than bolted onto the platform jobs, so a broken gate reports without waiting
+  # behind a GPU-less test run or a saver bundle. The lint *levels* are not set here:
+  # they live in the root Cargo.toml's [workspace.lints] table, which every member opts
+  # into, so this job runs plain `cargo clippy` and a local run catches the same things.
+  # Nothing silences a warning at the crate level.
+  lint:
+    name: lint (fmt, clippy, commit messages)
+    # macOS rather than the cheaper ubuntu: gibson-ffi links `oslog`, whose C wrapper includes
+    # <os/log.h>, so it is the one crate that cannot be built on Linux at all - no workflow
+    # builds it off macOS today (the `linux` and `windows` jobs select their crates by hand).
+    # Linting the whole workspace with no exclusions, exactly as CONTRIBUTING.md and
+    # `make lint` spell it, needs the runner where the whole workspace builds. The linux- and
+    # windows-only host code in `gibson-app` is not linted by Clippy anywhere; its rustc lints
+    # (the `unused` group) are denied by [workspace.lints] wherever it is compiled, which is
+    # the `linux`/`windows` jobs.
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+    steps:
+      # Full history: the commit-message gate below has to resolve the pull request's
+      # base and head commits.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # No `-- -D warnings`: [workspace.lints] already denies clippy::all and rustc's
+      # unused group, so this fails on a warning by itself.
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Clippy the workspace
+        run: cargo clippy --workspace --exclude gibson-web --all-targets
+      # gibson-web is #![cfg(target_arch = "wasm32")], so on a native host it compiles to
+      # nothing and a native lint proves nothing about it. The wasm32 target is installed
+      # above; the same two steps are in CONTRIBUTING.md.
+      - name: Clippy gibson-web for wasm32
+        run: cargo clippy -p gibson-web --target wasm32-unknown-unknown --all-targets
+      # Conventional Commits, on the commits this pull request adds. The range is
+      # `base...head` with three dots: it starts at the merge base, so the history from
+      # before the convention was adopted is never judged and no pull request fails on a
+      # message it did not write. See scripts/check-commit-messages.sh.
+      - name: Check the commit messages this pull request adds
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: scripts/check-commit-messages.sh "$BASE_SHA...$HEAD_SHA"
+      # A squash merge takes the pull request title as the commit subject, so the title has
+      # to be a Conventional Commit as well. The title arrives through the environment
+      # rather than interpolated into the command line: it is contributor-controlled text.
+      - name: Check the pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | scripts/check-commit-messages.sh
+
   macos:
     name: macOS (saver, tests)
     # macos-15 is the oldest GA Apple-silicon hosted image (macos-14 arm64 is

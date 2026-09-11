@@ -38,3 +38,8 @@ web-sys = { workspace = true, features = [
 ] }
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
+
+# Opt into the root Cargo.toml's [workspace.lints] policy: one place sets levels, so a local
+# `cargo clippy` reports exactly what CI does.
+[lints]
+workspace = true

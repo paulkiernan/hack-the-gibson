@@ -14,7 +14,11 @@
 DEV_DEBUG := line-tables-only
 
 .DEFAULT_GOAL := help
-.PHONY: help app snapshot web saver install-saver uninstall-saver check test fmt fmt-check lint clean
+# What `make commits` compares against: the branch this work was branched from. Override it
+# when that is not origin/main, e.g. `make commits BASE=origin/release`.
+BASE ?= origin/main
+
+.PHONY: help app snapshot web saver install-saver uninstall-saver check test fmt fmt-check lint lint-wasm commits clean
 
 help:
 	@echo "Hack the Gibson - make targets:"
@@ -31,9 +35,11 @@ help:
 	@echo "  make test             The same test command without the debuginfo prefix"
 	@echo "  make fmt              cargo fmt --all (needs: rustup component add rustfmt)"
 	@echo "  make fmt-check        cargo fmt --all --check - what CI runs"
-	@echo "  make lint             cargo clippy --workspace --all-targets -- -D warnings"
-	@echo "                        (needs: rustup component add clippy; lint gibson-web"
-	@echo "                         with --target wasm32-unknown-unknown - see CONTRIBUTING.md)"
+	@echo "  make lint             clippy the native workspace (needs: clippy; the levels are"
+	@echo "                        [workspace.lints] in Cargo.toml, so no -D flags)"
+	@echo "  make lint-wasm        the same for gibson-web (needs: rustup target add wasm32-unknown-unknown)"
+	@echo "  make commits          check this branch's commit messages ($(BASE)...HEAD); what CI"
+	@echo "                        runs on a pull request - see scripts/check-commit-messages.sh"
 	@echo "  make clean            cargo clean"
 	@echo
 	@echo "Prerequisites, the crate map and the conventions are in CONTRIBUTING.md."
@@ -71,8 +77,21 @@ fmt:
 fmt-check:
 	cargo fmt --all --check
 
+# No `-- -D warnings`: the root Cargo.toml's [workspace.lints] table denies clippy::all and
+# rustc's `unused` group for every member, so clippy fails on a warning by itself. Both
+# targets below are the two Clippy steps of the CI `lint` job, in that order.
 lint:
-	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy --workspace --exclude gibson-web --all-targets
+
+# gibson-web is #![cfg(target_arch = "wasm32")], so on a native host it compiles to nothing.
+lint-wasm:
+	cargo clippy -p gibson-web --target wasm32-unknown-unknown --all-targets
+
+# The commit-message gate CI runs on a pull request, against the commits this branch adds.
+# Three dots: the range starts at the merge base, so commits from before the convention was
+# adopted are never judged.
+commits:
+	scripts/check-commit-messages.sh $(BASE)...HEAD
 
 clean:
 	cargo clean
