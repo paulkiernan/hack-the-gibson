@@ -59,7 +59,7 @@ Each release carries the same six assets:
 | `Gibson.saver.zip` | macOS screen saver bundle, universal (arm64 + x86_64) |
 | `Gibson.scr` | Windows screen saver |
 | `hack-the-gibson-macos-universal.tar.gz` | macOS windowed desktop app |
-| `hack-the-gibson-linux-x86_64.tar.gz` | Linux desktop app / xscreensaver hack, including `gibson.xml` |
+| `hack-the-gibson-linux-x86_64.tar.gz` | Linux desktop app / xscreensaver hack, including `hack-the-gibson.xml` |
 | `hack-the-gibson-web.zip` | the static web build, for self-hosting |
 | `SHA256SUMS` | checksums covering every asset above |
 
@@ -150,8 +150,8 @@ every push.
 `gibson-app` doubles as an xscreensaver "external window" hack. The
 `hack-the-gibson-linux-x86_64.tar.gz` asset on the
 [Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
-contains the binary and the `gibson.xml` descriptor, and unpacks into a
-`hack-the-gibson-linux-x86_64/` directory:
+contains the binary and the `hack-the-gibson.xml` descriptor, and unpacks into
+a `hack-the-gibson-linux-x86_64/` directory:
 
 ```bash
 # From your download directory, with the tarball and SHA256SUMS present:
@@ -160,31 +160,40 @@ sha256sum -c --ignore-missing SHA256SUMS
 tar -xzf hack-the-gibson-linux-x86_64.tar.gz
 cd hack-the-gibson-linux-x86_64
 
-# Put the binary on PATH as `gibson`, and the descriptor where
-# xscreensaver looks for it:
-install -Dm755 gibson-app "$HOME/.local/bin/gibson"
-sudo install -Dm644 gibson.xml /usr/share/xscreensaver/config/gibson.xml
+# Put the binary on PATH as `hack-the-gibson` - the basename has to match the
+# descriptor, because xscreensaver-settings looks the descriptor up by the
+# program's basename - and the descriptor where xscreensaver looks for it:
+install -Dm755 gibson-app "$HOME/.local/bin/hack-the-gibson"
+sudo install -Dm644 hack-the-gibson.xml \
+     /usr/share/xscreensaver/config/hack-the-gibson.xml
 ```
 
 Then add this line to `~/.xscreensaver` (create it with `xscreensaver-demo`
-first if needed):
+first if needed). It takes no arguments:
 
 ```text
-programs: gibson -root
+programs: hack-the-gibson
 ```
 
-That line resolves `gibson` on `PATH`; give the absolute path instead if
-`~/.local/bin` is not on yours.
+That line resolves `hack-the-gibson` on `PATH`; give the absolute path instead
+if `~/.local/bin` is not on yours.
 
-`cargo build --release -p gibson-app` produces the same binary from source,
-and [`platform/linux/gibson.xml`](platform/linux/gibson.xml) is the
-descriptor the tarball ships. Full steps and the settings-dialog note are in
+The name matters, and it is not `gibson`: upstream xscreensaver has shipped
+its own unrelated `gibson` hack (also about the 1995 film) since 5.44, with
+the same executable and descriptor filenames. `cargo build --release -p
+gibson-app` produces the same binary from source, and
+[`platform/linux/hack-the-gibson.xml`](platform/linux/hack-the-gibson.xml) is
+the descriptor the tarball ships. Full steps, the collision explained, and
+the settings-dialog note are in
 [platform/linux/README.md](platform/linux/README.md).
 
-**Unverified on real hardware:** the xscreensaver host is compile-verified in
-CI only — nobody has run it yet. It is also X11 only: on a Wayland session
-use `swayidle` plus `gibson-app --fullscreen` instead (see the same file for
-the exact command).
+**Smoke-tested in CI, not verified on real hardware.** CI creates a real X
+window under Xvfb, hands its id to the binary through `XSCREENSAVER_WINDOW`
+the way xscreensaver does, and asserts that frames were actually presented
+before the window is destroyed — but through a software Vulkan rasteriser, on
+a headless X server. Driver behaviour with a real GPU is still untested. The
+host is also X11 only: on a Wayland session use `swayidle` plus
+`gibson-app --fullscreen` instead (see the same file for the exact command).
 
 ### Desktop app (any platform)
 
@@ -230,9 +239,13 @@ A windowed flythrough opens; press Esc or Q to quit. Useful flags (see
 
 **Platform status, stated plainly:** the macOS saver, the Windows `.scr`, the
 desktop app, and the web build have all been run on real hardware. The Linux
-xscreensaver host is **compile-verified in CI only — nobody has run it yet**;
-it is documented as untested in `platform/linux/README.md` and should be
-treated accordingly.
+xscreensaver host is **smoke-tested in CI under Xvfb with a software Vulkan
+rasteriser, and not verified on real hardware with a real GPU**: CI proves
+that the binary adopts an X11 window handed to it the way xscreensaver does,
+presents frames, and exits when the window goes away, but a software adapter
+under a headless X server cannot stand in for a real driver. Treat it as
+tested-but-inexperienced, and see `platform/linux/README.md` for what the
+smoke test does and does not cover.
 
 ## Settings
 
@@ -397,7 +410,7 @@ thanks, you can buy me a coffee:
 
 ## License
 
-GPL-3.0-or-later (see [GPL.txt](GPL.txt)). The bundled fonts — Michroma
+GPL-3.0-or-later (see [LICENSE](LICENSE)). The bundled fonts — Michroma
 Regular and IBM Plex Mono Medium — are SIL Open Font License; their license
 text ships in [assets/fonts/OFL-Michroma.txt](assets/fonts/OFL-Michroma.txt)
 and [assets/fonts/OFL-IBMPlexMono.txt](assets/fonts/OFL-IBMPlexMono.txt).

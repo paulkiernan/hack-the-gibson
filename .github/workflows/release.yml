@@ -230,7 +230,7 @@ jobs:
           | `Gibson.saver.zip` | macOS 14+ | Screen saver, universal (Apple silicon + Intel). Unzip it, copy the bundle to `~/Library/Screen Savers/`, then clear its quarantine flag - see below. |
           | `hack-the-gibson-macos-universal.tar.gz` | macOS 14+ | Windowed desktop app, universal. Untar it and run `hack-the-gibson-macos-universal/gibson-app`. |
           | `Gibson.scr` | Windows | Screen saver. Save it, then right-click it and choose Install. |
-          | `hack-the-gibson-linux-x86_64.tar.gz` | Linux x86_64 | Desktop app, plus the xscreensaver hack with its `gibson.xml` descriptor. See `README.txt` inside. |
+          | `hack-the-gibson-linux-x86_64.tar.gz` | Linux x86_64 | Desktop app, plus the xscreensaver hack with its `hack-the-gibson.xml` descriptor. See `README.txt` inside. |
           | `hack-the-gibson-web.zip` | any modern browser | Static WebGPU/WebGL2 build for self-hosting. Serve the directory over HTTP. |
 
           Check the download before running anything:
@@ -266,8 +266,8 @@ jobs:
 
           Clearing the attribute does not affect the code signature.
 
-          The Linux xscreensaver host is compile-verified in CI on every release but has not been
-          run on real hardware yet.
+          The Linux xscreensaver host is smoke-tested in CI on every push and release, under Xvfb with
+          a software Vulkan rasteriser; it is not verified on real hardware with a real GPU.
           EOF
           # `--prerelease` takes the guard's answer directly, so a stable tag and
           # a prerelease tag follow the same code path. GitHub derives the
@@ -369,7 +369,7 @@ jobs:
           # rather than something nobody notices until a downloader runs it.
           codesign --force --sign - --timestamp=none "$stage/gibson-app"
           codesign -v "$stage/gibson-app"
-          cp GPL.txt "$stage/GPL.txt"
+          cp LICENSE "$stage/LICENSE"
           cat > "$stage/README.txt" <<'EOF'
           Hack the Gibson - macOS desktop app
           ===================================
@@ -391,7 +391,7 @@ jobs:
             ~/Library/Application Support/hack-the-gibson/gibson.toml
           which is written with defaults and comments on first run.
 
-          Licensed GPL-3.0-or-later; see GPL.txt.
+          Licensed GPL-3.0-or-later; see LICENSE.
           EOF
           tar -czf dist/hack-the-gibson-macos-universal.tar.gz -C dist hack-the-gibson-macos-universal
           tar -tzf dist/hack-the-gibson-macos-universal.tar.gz
@@ -467,8 +467,12 @@ jobs:
       # Build only; see the note in build-windows.
       - name: Build the desktop app
         run: cargo build --release -p gibson-app
-      # gibson.xml is the xscreensaver descriptor and is useless without the
-      # binary, so the two ship together.
+      # hack-the-gibson.xml is the xscreensaver descriptor and is useless
+      # without the binary, so the two ship together. The basename is
+      # load-bearing: xscreensaver-settings looks the descriptor up as
+      # <config-dir>/<basename of the installed program>.xml, so the README
+      # tells the user to install the binary as `hack-the-gibson` and this
+      # file as hack-the-gibson.xml.
       - name: Package the desktop app
         shell: bash
         run: |
@@ -476,13 +480,17 @@ jobs:
           stage=dist/hack-the-gibson-linux-x86_64
           mkdir -p "$stage"
           install -m 755 target/release/gibson-app "$stage/gibson-app"
-          cp platform/linux/gibson.xml "$stage/gibson.xml"
+          cp platform/linux/hack-the-gibson.xml "$stage/hack-the-gibson.xml"
           cat > "$stage/README.txt" <<'EOF'
           Hack the Gibson - Linux x86_64 desktop app and xscreensaver hack
           =================================================================
 
           Binary:      gibson-app (x86_64, dynamically linked against libc)
-          Descriptor:  gibson.xml (options for the xscreensaver settings dialog)
+          Descriptor:  hack-the-gibson.xml (options for the xscreensaver
+                       settings dialog). It is not named `gibson`: xscreensaver
+                       ships its own unrelated gibson hack with those same
+                       filenames, and xscreensaver-settings finds a descriptor
+                       by the installed program's basename.
 
           Windowed app:
 
@@ -492,9 +500,14 @@ jobs:
 
           xscreensaver hack:
 
-            install -m 755 gibson-app ~/.local/bin/gibson
-            sudo cp gibson.xml /usr/share/xscreensaver/config/gibson.xml
-            # then add to ~/.xscreensaver:  programs: gibson -root
+            # The binary's basename has to be hack-the-gibson, so that it
+            # matches the descriptor:
+            install -m 755 gibson-app ~/.local/bin/hack-the-gibson
+            sudo cp hack-the-gibson.xml /usr/share/xscreensaver/config/
+            # then add to ~/.xscreensaver:  programs: hack-the-gibson
+            # No arguments: xscreensaver passes the window in
+            # $XSCREENSAVER_WINDOW, and its settings dialog appends
+            # --window-id itself when it builds the preview command.
 
           Settings are read from ~/.config/hack-the-gibson/gibson.toml, which is
           written with defaults and comments on first run. Anything on the
@@ -504,8 +517,8 @@ jobs:
           xscreensaver hands it. On Wayland, use the fullscreen mode under
           swayidle instead, since xscreensaver is X11-only.
 
-          The X11 path is compile-verified in CI but has never been exercised on
-          a real X server. Licensed GPL-3.0-or-later.
+          Smoke-tested in CI under Xvfb with a software Vulkan rasteriser; not
+          verified on real hardware with a real GPU. Licensed GPL-3.0-or-later.
           EOF
           tar -czf dist/hack-the-gibson-linux-x86_64.tar.gz -C dist hack-the-gibson-linux-x86_64
           tar -tzf dist/hack-the-gibson-linux-x86_64.tar.gz

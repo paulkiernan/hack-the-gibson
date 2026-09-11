@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<!--
+  xscreensaver hack descriptor for Hack the Gibson.
+
+  The name is `hack-the-gibson`, not `gibson`, and that is load-bearing:
+  xscreensaver-settings resolves this file by looking up
+  <hack-configuration-path>/<basename-of-program>.xml (hack_xml_file() in
+  driver/demo-Gtk-conf.c), so the installed executable must also be named
+  `hack-the-gibson`. The name `gibson` would collide with the unrelated gibson
+  hack that upstream xscreensaver has shipped since 5.44 - same film, same
+  filenames, different program.
+
+  There is deliberately no <command> element here. A <command> is written
+  verbatim into the saved `programs:` line every time the settings dialog
+  regenerates it (parameters_to_cmd_line() in driver/demo-Gtk-conf.c), and the
+  settings dialog also appends its own window-id argument when it builds the
+  embedded preview (launch_preview_subproc() in driver/demo-Gtk.c). A
+  <command> naming the window-id option would therefore put two of them on the
+  preview's command line and a valueless one on the daemon's - and the daemon,
+  which runs the `programs:` line verbatim and passes the window only in
+  $XSCREENSAVER_WINDOW, would not start the hack at all. Upstream hacks carry
+  a <command> for their root switch because they implement the xscreensaver
+  protocol; this binary selects the X11 host from $XSCREENSAVER_WINDOW or an
+  explicit window-id argument, so it needs no constant switch.
+
+  (Note for editors: an XML comment may not contain a double hyphen, so the
+  two option names are spelled out rather than quoted above. The `%` in each
+  slider's arg is where xscreensaver-settings substitutes the value
+  (format_switch() replaces `%` and nothing else), so an arg without it emits
+  a valueless switch that the CLI rejects. The two sliders' defaults match the
+  program's own defaults, so merely opening the settings dialog does not
+  change how the hack runs.)
+
+  Install: put the binary on PATH as `hack-the-gibson`, copy this file to
+  /usr/share/xscreensaver/config/hack-the-gibson.xml, then add
+  `programs: hack-the-gibson` (no arguments) to ~/.xscreensaver. See
+  platform/linux/README.md for the whole recipe and the reasoning above.
+-->
+<screensaver name="hack-the-gibson" _label="Hack the Gibson">
+
+  <number id="speed" type="slider"
+          arg="--speed %" _label="Fly speed"
+          low="0.05" high="3.0" default="0.55" step="0.05"/>
+
+  <number id="pulses" type="slider"
+          arg="--pulses %" _label="Pulse streaks"
+          low="0" high="2000" default="700" step="10"/>
+
+</screensaver>

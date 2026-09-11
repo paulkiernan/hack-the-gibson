@@ -1,15 +1,24 @@
 //! Linux xscreensaver host.
 //!
-//! xscreensaver runs external-window hacks by launching the binary with
-//! `--window-id <xid>` (newer versions set `XSCREENSAVER_WINDOW` instead). We
-//! adopt that existing window: open the X display, build a wgpu surface on the
-//! window via raw Xlib handles, then render at ~60 Hz while pumping
+//! Two things launch a hack, and they hand the window over differently: the
+//! daemon runs the `programs:` line from `~/.xscreensaver` verbatim and passes
+//! the window only in `$XSCREENSAVER_WINDOW`, while `xscreensaver-settings`
+//! appends `--window-id 0x<id>` to the command line for its embedded preview
+//! (and sets the environment too). `cli::x11_window_arg` accepts either, so
+//! both work.
+//!
+//! We adopt the window xscreensaver made: open the X display, build a wgpu
+//! surface on it via raw Xlib handles, then render at ~60 Hz while pumping
 //! `StructureNotify` events. `ConfigureNotify` resizes the renderer;
 //! `DestroyNotify` (xscreensaver's way of stopping the hack) exits.
 //!
-//! Like the Windows `.scr` host, this path is **compile-verified in CI but not
-//! runtime-tested** (no X server on the development machines). See
-//! `platform/linux/README.md` for install notes.
+//! CI exercises this host for real — `platform/linux/smoke-test.sh` under Xvfb
+//! with a software Vulkan driver adopts a window via `$XSCREENSAVER_WINDOW`
+//! (and again via `--window-id`), asserts that frames were actually presented,
+//! and asserts a clean exit when the window is destroyed. That is a software
+//! adapter on a headless X server, not a real GPU; see
+//! `platform/linux/README.md` for install notes and the exact scope of what has
+//! been tested.
 
 use std::ptr::NonNull;
 use std::time::{Duration, Instant};
@@ -119,7 +128,10 @@ unsafe fn drive(
     // window cannot spin the loop at 60 Hz logging forever.
     let mut liveness_check = Instant::now() + Duration::from_secs(1);
     let mut error_policy = crate::error_policy::ConsecutiveErrorPolicy::new(10);
-    loop {
+    // One exit point, so the frame counters are reported on every path —
+    // including the failure paths. The CI smoke test reads this line to tell a
+    // hack that drew from one that merely started.
+    let outcome: Result<&'static str, String> = 'frames: loop {
         // Drain window events without blocking.
         let mut event: XEvent = std::mem::zeroed();
         while (xlib.XCheckWindowEvent)(display, xid, StructureNotifyMask, &mut event) != 0 {
@@ -132,8 +144,7 @@ unsafe fn drive(
                 DestroyNotify => {
                     let gone: XDestroyWindowEvent = event.destroy_window;
                     if gone.window == xid {
-                        log::info!("window {xid:#x} destroyed; exiting");
-                        return Ok(());
+                        break 'frames Ok("window destroyed");
                     }
                 }
                 _ => {}
@@ -148,8 +159,7 @@ unsafe fn drive(
             liveness_check = now + Duration::from_secs(1);
             let mut live: XWindowAttributes = std::mem::zeroed();
             if (xlib.XGetWindowAttributes)(display, xid, &mut live) == 0 {
-                log::info!("window {xid:#x} is gone; exiting");
-                return Ok(());
+                break 'frames Ok("window is gone");
             }
         }
 
@@ -163,7 +173,7 @@ unsafe fn drive(
             Err(e) => {
                 log::error!("frame error: {e}");
                 if error_policy.record_error() {
-                    return Err(format!(
+                    break 'frames Err(format!(
                         "{} consecutive frame errors on window {xid:#x}; giving up",
                         error_policy.consecutive()
                     ));
@@ -178,5 +188,23 @@ unsafe fn drive(
             Duration::from_millis(250)
         };
         std::thread::sleep(wait);
+    };
+
+    let (presented, skipped) = gibson.present_stats();
+    match outcome {
+        Ok(reason) => {
+            log::info!(
+                "gibson-app: exiting ({reason}); presented {presented} frames, skipped {skipped}, \
+                 on window {xid:#x}"
+            );
+            Ok(())
+        }
+        Err(e) => {
+            log::error!(
+                "gibson-app: giving up on window {xid:#x} after presenting {presented} frames \
+                 and skipping {skipped}: {e}"
+            );
+            Err(e)
+        }
     }
 }
