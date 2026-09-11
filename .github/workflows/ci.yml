@@ -16,6 +16,11 @@ permissions:
 env:
   RUST_BACKTRACE: 1
 
+# The toolchain is deliberately not installed by a step. `rust-toolchain.toml` pins an exact
+# version, and rustup - preinstalled on every hosted runner - selects it inside the checkout,
+# components included. A step that installed `stable` itself would override that file and let
+# the two drift, which is how a new Clippy release ends up failing a build nobody touched
+# (the lint levels are `deny`; see Cargo.toml). The lint job prints the versions it used.
 jobs:
   # The fast gate: formatting, lints and commit messages. Kept in one job of its own
   # rather than bolted onto the platform jobs, so a broken gate reports without waiting
@@ -42,9 +47,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
+      # The toolchain is rust-toolchain.toml's, not this file's (see the note above `jobs`).
+      # Printing it makes a divergence visible in the log - a bump CI did not pick up reads as
+      # an unexplained lint, which is the failure mode this pin exists to prevent.
+      - name: Show the toolchain
+        run: |
+          rustup show active-toolchain
+          cargo --version
+          cargo clippy --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # No `-- -D warnings`: [workspace.lints] already denies clippy::all and rustc's
       # unused group, so this fails on a warning by itself.
@@ -86,7 +98,6 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Run tests
         run: cargo test --workspace --exclude gibson-web
@@ -121,7 +132,6 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # No gibson-render (no GPU adapter on hosted runners; its tests only
       # self-skip anyway) and no gibson-web (wasm-only crate) on native hosts.
@@ -155,7 +165,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # Same native test set as Windows: no gibson-render, no gibson-web.
       - name: Run tests
@@ -196,7 +205,6 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2

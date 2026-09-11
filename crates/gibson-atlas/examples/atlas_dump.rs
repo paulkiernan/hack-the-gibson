@@ -90,7 +90,7 @@ fn main() {
     let mut min_layer = 0usize;
     for l in 0..atlas.layers as usize {
         let lay = &atlas.rgba[l * per * 4..(l + 1) * per * 4];
-        let nz = lay.chunks_exact(4).filter(|p| p[0] != 0).count();
+        let nz = lay.as_chunks::<4>().0.iter().filter(|p| p[0] != 0).count();
         let cov = nz as f64 / per as f64;
         if cov < min_cov {
             min_cov = cov;

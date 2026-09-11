@@ -22,6 +22,9 @@ name: Release
 # (SHA256SUMS + publish). A build that fails leaves a draft release behind and
 # never publishes a half-populated one. A tag with a `-prerelease` component is
 # created as a GitHub prerelease, so it never becomes the "Latest release".
+# The toolchain is rust-toolchain.toml's, not this file's: no job below installs one, so a
+# release is built with the same compiler the pull request was linted and tested with. See the
+# note above `jobs` in ci.yml, and "Bumping Rust" in CONTRIBUTING.md.
 on:
   push:
     # Quoted: `[` is a YAML special character, and GitHub requires a pattern
@@ -306,7 +309,6 @@ jobs:
       TAG: ${{ needs.guard.outputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - name: Add the Intel target
         run: rustup target add x86_64-apple-darwin
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -419,7 +421,6 @@ jobs:
       TAG: ${{ needs.guard.outputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: release-windows
@@ -460,7 +461,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: release-linux
@@ -543,7 +543,6 @@ jobs:
       TAG: ${{ needs.guard.outputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch head, 2026-09-03
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2

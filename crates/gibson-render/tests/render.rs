@@ -85,20 +85,27 @@ fn empty_frame<'a>(
     }
 }
 
+/// An sRGB8 buffer as whole pixels: every buffer the renderer returns is `w * h * 4` bytes, so
+/// `as_chunks` never has a remainder to report.
+fn pixels(rgba: &[u8]) -> &[[u8; 4]] {
+    rgba.as_chunks::<4>().0
+}
+
 fn luminance(rgba: &[u8]) -> f64 {
     let n = rgba.len() / 4;
     if n == 0 {
         return 0.0;
     }
     let mut sum = 0u64;
-    for px in rgba.chunks_exact(4) {
+    for px in pixels(rgba) {
         sum += (px[0] as u64 * 77 + px[1] as u64 * 150 + px[2] as u64 * 29) >> 8;
     }
     sum as f64 / n as f64
 }
 
 fn nonzero_count(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4)
+    pixels(rgba)
+        .iter()
         .filter(|px| px[0] != 0 || px[1] != 0 || px[2] != 0)
         .count()
 }
@@ -147,12 +154,13 @@ fn empty_frame_is_pure_black() {
     assert_eq!((w, h), (320, 240));
     assert_eq!(rgba.len(), 320 * 240 * 4);
     assert!(
-        rgba.chunks_exact(4)
+        pixels(&rgba)
+            .iter()
             .all(|px| px[0] == 0 && px[1] == 0 && px[2] == 0),
         "empty frame must be pure black (all effects disabled)"
     );
     // Composite is opaque: alpha must be saturated.
-    assert!(rgba.chunks_exact(4).all(|px| px[3] == 255));
+    assert!(pixels(&rgba).iter().all(|px| px[3] == 255));
 }
 
 #[test]
@@ -280,11 +288,7 @@ fn highlight_block_lights_only_its_own_panel_block() {
 
     let diff = |rgba_a: &[u8], rgba_b: &[u8]| -> Vec<(usize, usize)> {
         let mut out = Vec::new();
-        for (i, (pa, pb)) in rgba_a
-            .chunks_exact(4)
-            .zip(rgba_b.chunks_exact(4))
-            .enumerate()
-        {
+        for (i, (pa, pb)) in pixels(rgba_a).iter().zip(pixels(rgba_b)).enumerate() {
             if (pa[0] as i32 - pb[0] as i32).abs() > 4
                 || (pa[1] as i32 - pb[1] as i32).abs() > 4
                 || (pa[2] as i32 - pb[2] as i32).abs() > 4
@@ -577,7 +581,7 @@ fn lit_in_band(rgba: &[u8], w: usize, h: usize, x0: usize, x1: usize) -> usize {
 fn mad(a: &[u8], b: &[u8]) -> f64 {
     let n = a.len() / 4;
     let mut sum = 0u64;
-    for (pa, pb) in a.chunks_exact(4).zip(b.chunks_exact(4)) {
+    for (pa, pb) in pixels(a).iter().zip(pixels(b)) {
         sum += pa[0].abs_diff(pb[0]) as u64;
         sum += pa[1].abs_diff(pb[1]) as u64;
         sum += pa[2].abs_diff(pb[2]) as u64;

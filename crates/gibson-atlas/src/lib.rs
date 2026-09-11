@@ -82,9 +82,13 @@ pub(crate) fn generate_internal(seed: u64) -> (AtlasImage, Vec<Vec<layout::Block
 /// identical R plane is effectively impossible; should it ever happen, flip one pixel inside the
 /// first block to make the guarantee structural.
 fn ensure_r_differs(a: &mut [u8], b: &mut [u8], blocks: &[layout::Block]) {
+    // Both buffers are whole RGBA pixels, so the remainder `as_chunks` reports is always empty
+    // (`LAYER_BYTES` is a multiple of 4); compare the pixel arrays directly.
     let same = a
-        .chunks_exact(4)
-        .zip(b.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .all(|(pa, pb)| pa[0] == pb[0]);
     if same {
         let bl = &blocks[0];
@@ -103,6 +107,12 @@ mod tests {
 
     fn layer(rgba: &[u8], l: usize) -> &[u8] {
         &rgba[l * LAYER_BYTES..(l + 1) * LAYER_BYTES]
+    }
+
+    /// One layer's bytes as whole RGBA pixels. `LAYER_BYTES` is `PW * PH * 4`, so `as_chunks`
+    /// never has a remainder to report here.
+    fn pixels(lay: &[u8]) -> &[[u8; 4]] {
+        lay.as_chunks::<4>().0
     }
 
     #[test]
@@ -158,7 +168,7 @@ mod tests {
         let threshold = wpx as f64 * 0.02;
         for l in 0..ATLAS_LAYERS as usize {
             let lay = layer(&a.rgba, l);
-            let nz = lay.chunks_exact(4).filter(|px| px[0] != 0).count();
+            let nz = pixels(lay).iter().filter(|px| px[0] != 0).count();
             assert!(
                 nz as f64 >= threshold,
                 "layer {l} has {nz} nonzero-R pixels, below 2% of {wpx}"
@@ -188,7 +198,7 @@ mod tests {
             }
             for l in 0..ATLAS_LAYERS as usize {
                 let lay = layer(&a.rgba, l);
-                let nz = lay.chunks_exact(4).filter(|px| px[0] != 0).count();
+                let nz = pixels(lay).iter().filter(|px| px[0] != 0).count();
                 assert!(
                     nz as f64 >= threshold,
                     "seed {seed} layer {l}: {nz} nonzero-R pixels, below 2% of {wpx}"
@@ -203,14 +213,14 @@ mod tests {
         for p in 0..ATLAS_PANELS as usize {
             let va = layer(&a.rgba, p);
             let vb = layer(&a.rgba, p + ATLAS_PANELS as usize);
-            for (pa, pb) in va.chunks_exact(4).zip(vb.chunks_exact(4)) {
+            for (pa, pb) in pixels(va).iter().zip(pixels(vb)) {
                 assert_eq!(pa[1], pb[1], "panel {p} G plane differs");
                 assert_eq!(pa[2], pb[2], "panel {p} B plane differs");
                 assert_eq!(pa[3], pb[3], "panel {p} A plane differs");
             }
-            let r_differs = va
-                .chunks_exact(4)
-                .zip(vb.chunks_exact(4))
+            let r_differs = pixels(va)
+                .iter()
+                .zip(pixels(vb))
                 .any(|(pa, pb)| pa[0] != pb[0]);
             assert!(r_differs, "panel {p} variants share an identical R plane");
         }

@@ -41,7 +41,7 @@ before you push.
 
 | To do this | You need |
 | --- | --- |
-| Build anything | A Rust toolchain from rustup. `rust-toolchain.toml` pins the **stable** channel, so rustup selects it inside the repository automatically - never invoke `cargo +nightly` here. |
+| Build anything | A Rust toolchain from rustup. `rust-toolchain.toml` pins one **exact version** (`1.98.1` as this is written), so rustup installs and selects it inside the repository automatically - never invoke `cargo +nightly` here. See [Bumping Rust](#bumping-rust). |
 | Format and lint the way CI does | `rustup component add rustfmt clippy` |
 | Build the web bundle | `rustup target add wasm32-unknown-unknown`, then `cargo install wasm-pack --locked`. CI installs the prebuilt wasm-pack 0.15.0. |
 | Build a universal macOS screen saver (arm64 + x86_64) | `rustup target add aarch64-apple-darwin x86_64-apple-darwin`, on macOS |
@@ -308,7 +308,7 @@ share a copper cell, for instance); follow whichever of those fits the change.
 `rustfmt.toml` is authoritative and deliberately almost empty: rustfmt's
 defaults are the Rust Style Guide. Only `edition = "2021"` is set, to match the
 workspace. No nightly-only key (`imports_granularity`, `group_imports`,
-`wrap_comments`, ...) appears there, because on the stable channel that
+`wrap_comments`, ...) appears there, because on the stable toolchain that
 `rust-toolchain.toml` pins, rustfmt warns about such a key and ignores it - it
 would quietly do nothing here while reformatting everything for someone running
 nightly rustfmt by hand.
@@ -351,6 +351,41 @@ once per clone, and never fold a repo-wide reformat into a feature change: it
 would move blame for every line of the tree again and collide with every branch
 in flight. Format only the files you actually touch (`.editorconfig` is there so
 your editor does not reformat them differently from rustfmt).
+
+### Bumping Rust
+
+`rust-toolchain.toml` pins the compiler by exact version (`1.98.1` as this is
+written), and no workflow installs a toolchain of its own: rustup reads that file
+in the checkout, so CI, the Makefile and your shell all get the same `rustc` and
+`clippy`. The lint job prints them (`rustup show active-toolchain`, then
+`cargo --version` and `cargo clippy --version`), so a divergence shows up in the
+log instead of as a failure nobody can explain.
+
+The pin is what makes `deny` in `[workspace.lints]` safe. Clippy grows new lints
+every release, and on a floating `stable` the first one that fires lands on
+whichever pull request happens to be open - failing a change that has nothing to
+do with it, on a compiler neither the author nor CI chose. Pinned, the same lint
+arrives once, in a commit whose whole subject is the bump.
+
+So bumping is a deliberate change, and it is more than editing one line:
+
+1. `rustup toolchain install <version> --component rustfmt,clippy`, then set
+   `channel` in `rust-toolchain.toml` to that version.
+2. Run the whole gate: `make fmt-check`, `make lint`, `make lint-wasm`,
+   `make check`, and the snapshot command from "Deterministic stills" with the
+   same `--seed`. A new compiler is a change to the program that renders the
+   pixels, so the still is the evidence that the pixels did not change.
+3. Deal with whatever the new Clippy found *in that commit* - fix it, or allow
+   it narrowly with a comment saying why the lint is wrong here.
+4. Check the new version is not ahead of what the packaging builds with. The AUR
+   `PKGBUILD` is the only one of the three that compiles anything, and it uses
+   Arch's distro `cargo`, which does not read `rust-toolchain.toml` at all
+   (Arch ships this same version today); the Scoop and Homebrew manifests
+   download prebuilt release assets. A pin ahead of the distro compiler is a
+   broken build that CI cannot see.
+
+Dependabot does not manage `rust-toolchain.toml`; it watches `Cargo.toml` and
+the workflows.
 
 ### Commit messages: Conventional Commits, required
 

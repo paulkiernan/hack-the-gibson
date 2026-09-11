@@ -127,9 +127,13 @@ impl Profile {
         slice.map_async(wgpu::MapMode::Read, |r| r.expect("map profile buffer"));
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
         let mapped = slice.get_mapped_range().expect("map profile buffer");
+        // Two query slots per pass, eight bytes each; decoding a typed chunk drops the
+        // `try_into().unwrap()` the byte slice needed.
         let ticks: Vec<u64> = mapped
-            .chunks_exact(8)
-            .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|c| u64::from_le_bytes(*c))
             .collect();
         drop(mapped);
         self.readback.unmap();

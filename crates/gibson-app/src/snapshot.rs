@@ -63,7 +63,9 @@ pub fn run(cli: &Cli) -> Result<(), String> {
     // per-row filtering buys the rest; the deterministic pixel stream keeps two runs of the
     // same arguments byte-identical.
     let rgb: Vec<u8> = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|px| [px[0], px[1], px[2]])
         .collect();
     let file = File::create(&out_path)
