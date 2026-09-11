@@ -6,9 +6,10 @@ on:
 
 # Least privilege: jobs only check out code and upload artifacts
 # (upload-artifact uses the runtime token, not GITHUB_TOKEN), so read-only
-# contents suffices. Renderer tests that need a GPU adapter self-skip on
+# contents suffices. Renderer *tests* that need a GPU adapter self-skip on
 # headless runners (they print a skip message), so no software-rasterizer
-# setup is added.
+# setup is added for them; the `linux` job below does install one, because it
+# runs the xscreensaver host for real rather than self-skipping.
 permissions:
   contents: read
 
@@ -102,6 +103,27 @@ jobs:
         run: cargo test -p gibson-scene -p gibson-atlas -p gibson-floor -p gibson-app
       - name: Build release
         run: cargo build --release -p gibson-app
+      # The runtime test: the only place the xscreensaver host is ever
+      # executed. Xvfb supplies an X server with a 24-bit screen (its default
+      # 8-bit screen has no visual that a Vulkan surface can target), and
+      # Mesa's lavapipe a software Vulkan device - wgpu's native backend set on
+      # Linux is Vulkan only, so an ICD is mandatory on a runner with no GPU.
+      # Kept separate from the build-dependency step above, which must stay in
+      # sync with release.yml: that job only builds and packages, and never
+      # runs the hack.
+      - name: Install the runtime-test packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1 vulkan-tools
+      # This step fails loudly and prints the window id, the adapter line and
+      # the frame counters on every path, so a failure here is diagnosable
+      # from the job log alone.
+      - name: Smoke-test the xscreensaver host under Xvfb
+        run: |
+          set -euo pipefail
+          vulkaninfo --summary || true
+          xvfb-run -a -s "-screen 0 800x600x24" \
+            bash platform/linux/smoke-test.sh target/release/gibson-app
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gibson-app
