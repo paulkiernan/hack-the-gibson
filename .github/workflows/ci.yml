@@ -44,7 +44,7 @@ jobs:
     steps:
       # Full history: the commit-message gate below has to resolve the pull request's
       # base and head commits.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Add wasm32 target
@@ -97,7 +97,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Run tests
         run: cargo test --workspace --exclude gibson-web
@@ -115,7 +115,7 @@ jobs:
           zip -rq Gibson.saver.zip Gibson.saver
           shasum -a 256 Gibson.saver.zip > SHA256SUMS
           cat SHA256SUMS
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Gibson.saver.zip
           path: |
@@ -131,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # No gibson-render (no GPU adapter on hosted runners; its tests only
       # self-skip anyway) and no gibson-web (wasm-only crate) on native hosts.
@@ -142,7 +142,7 @@ jobs:
       - name: Stage .scr
         shell: pwsh
         run: Copy-Item target/release/gibson-app.exe Gibson.scr
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Gibson.scr
           path: Gibson.scr
@@ -156,7 +156,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # winit 0.30 x11/wayland backends and x11-dl: x11-dl dlopens libX11 at
       # runtime, but winit's wayland stack links libwayland-client and needs
       # libxkbcommon headers at build time.
@@ -192,7 +192,7 @@ jobs:
           vulkaninfo --summary || true
           xvfb-run -a -s "-screen 0 800x600x24" \
             bash platform/linux/smoke-test.sh target/release/gibson-app
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gibson-app
           path: target/release/gibson-app
@@ -204,7 +204,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -220,7 +220,7 @@ jobs:
           echo "$PWD/wasm-pack-v0.15.0-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
       - name: Build web bundle
         run: wasm-pack build crates/gibson-web --target web --release --out-dir ../../web/pkg
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: web
           path: web

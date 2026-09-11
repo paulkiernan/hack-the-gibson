@@ -92,7 +92,7 @@ jobs:
       # from the check it is testing.
       SEMVER_CHECK: 'import re, sys; raise SystemExit(0 if re.fullmatch(sys.argv[1], sys.argv[2], re.ASCII) else 1)'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # This regex is now the gate that decides whether a release can be
       # published, and its failure mode is silent: a pattern mangled by an edit
       # still accepts every valid tag and quietly lets bad ones through. So the
@@ -207,7 +207,7 @@ jobs:
       # code path.
       PRERELEASE: ${{ needs.guard.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Re-running a tag whose draft already exists (a retry after one platform
       # flaked) reuses it instead of failing, and `--clobber` on every upload
       # replaces the assets. Release immutability is not enabled on this repo,
@@ -308,7 +308,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.guard.outputs.tag }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Add the Intel target
         run: rustup target add x86_64-apple-darwin
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -420,7 +420,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.guard.outputs.tag }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: release-windows
@@ -453,7 +453,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.guard.outputs.tag }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Kept in sync with the `linux` job in ci.yml: winit's wayland stack needs
       # libwayland-client and libxkbcommon headers at build time, and x11-dl
       # dlopens libX11 at runtime.
@@ -542,7 +542,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.guard.outputs.tag }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
