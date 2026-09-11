@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Live demo
+    url: https://paulkiernan.github.io/hack-the-gibson/
+    about: The deployed WebGPU/WebGL2 build. Query parameters change the settings, for example ?palette=cycle&grid=40.
+  - name: Install and settings reference
+    url: https://github.com/paulkiernan/hack-the-gibson/blob/main/README.md
+    about: How to install each host, every setting and its range, and the full command-line surface.
+  - name: Contributing guide
+    url: https://github.com/paulkiernan/hack-the-gibson/blob/main/CONTRIBUTING.md
+    about: Prerequisites, the crate map, the build and test commands, and the conventions that will get a pull request sent back.
+  - name: Report a security issue
+    url: https://github.com/paulkiernan/hack-the-gibson/security/policy
+    about: Please do not open a public issue for a vulnerability - SECURITY.md says what is in scope and how to report it privately.

@@ -1,0 +1,89 @@
+name: Visual fidelity
+description: The render does not match the film - palette, towers, text, floor, effects.
+title: "[Fidelity]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the project's primary standard: the visuals are graded against
+        the observed frames and crew interviews in
+        [docs/film-reference.md](https://github.com/paulkiernan/hack-the-gibson/blob/main/docs/film-reference.md),
+        not against taste. A report that names the reference it disagrees with
+        is actionable; "the towers look wrong" is not.
+
+        The film frames themselves are copyrighted and are **not** committed to
+        the repository. Link to the source instead of pasting a frame, or
+        describe the shot (which sequence, roughly where in it).
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot of what you see
+      description: |
+        Drag an image into this box. A still from the snapshot path is ideal,
+        because it is reproducible: run
+
+        `cargo run --release -p gibson-app -- --snapshot out.png --size 1920x1080 --time 12 --seed 42`
+
+        and include the exact command you used with the image. Film captures
+        were graded at 1080p, so a still at another size or a phone photo of the
+        screen is much harder to compare.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: palette
+    attributes:
+      label: Palette
+      description: NORMAL is the everyday blue/cyan look; SIEGE is the orange-red "under attack" treatment; CYCLE switches between them on a timer.
+      options:
+        - normal
+        - siege
+        - cycle
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings used
+      description: |
+        The stills that were graded were produced with specific times and
+        palettes, so these decide whether we are looking at the same thing:
+        any CLI flags (especially `--time`, `--palette`, `--seed`, `--grid`),
+        the contents of `gibson.toml`, or the web query string.
+    validations:
+      required: true
+
+  - type: textarea
+    id: difference
+    attributes:
+      label: What differs from the film?
+      description: |
+        Be specific: text colour, tower opacity, back-face text bleed, block
+        layout, the directory lists and their markers, floor trace colour and
+        routing, fog colour at distance, bloom, grain, motion blur, the CRT
+        treatment, camera banking. "Too clean" and "too bright" are fine as
+        long as you say which part is too clean or too bright.
+    validations:
+      required: true
+
+  - type: input
+    id: reference
+    attributes:
+      label: Film reference
+      description: Which shot or frame is this compared against? A timestamp in the film, a file name from the capture set listed in docs/film-reference.md, or a link.
+      placeholder: "the lane flythrough, or frame 0200 from the capture set"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I read docs/film-reference.md and the effect is not described there as intended
+          required: true
+        - label: I checked whether the effect is disabled by a setting (bloom, motion blur, grain, CRT, render scale)
+          required: false

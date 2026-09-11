@@ -1,0 +1,18 @@
+# Authoritative formatting config. Deliberately almost empty: rustfmt's defaults
+# ARE the Rust Style Guide, which is the style this repository follows, so the
+# only thing worth stating here is the edition.
+#
+# `edition` must match `edition = "2021"` in [workspace.package] in Cargo.toml:
+# it tells rustfmt which syntax to expect, and a mismatch between the two is a
+# silent source of misplaced (or refused) formatting.
+#
+# There are no nightly-only keys here on purpose (`imports_granularity`,
+# `group_imports`, `wrap_comments`, `style_edition`, ...). `rust-toolchain.toml`
+# pins the stable channel, where rustfmt warns about such a key and ignores it -
+# so it would silently do nothing here, and the same file would produce
+# different results for anyone running nightly rustfmt by hand.
+#
+# `cargo fmt --all --check` runs in CI, so run `cargo fmt --all` before pushing.
+# The tree was formatted once, in a single dedicated commit listed in
+# .git-blame-ignore-revs, which is why a reformat does not move anyone's blame.
+edition = "2021"

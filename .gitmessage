@@ -1,0 +1,17 @@
+# Hack the Gibson commit message - Conventional Commits. See CONTRIBUTING.md.
+#
+#   type(scope): subject
+#
+# type     feat fix docs style refactor perf test build ci chore revert
+# scope    types scene atlas floor render core app web ffi
+#          macos linux windows ci docs
+#          (omit the scope when the change is genuinely repo-wide)
+# subject  imperative mood, lower case, no trailing period, 72 columns or fewer
+#
+# Body (optional): what changed and why, wrapped at 72 columns. The diff
+# already shows what; the body is for the reasoning, and for what you checked.
+#
+# Breaking change footer, when other code or users must adapt:
+#   BREAKING CHANGE: what breaks, and what to do instead
+#
+# Every line starting with '#' is stripped by git, including this one.

@@ -1,0 +1,127 @@
+name: Bug report
+description: A crash, a hang, a black screen, or behaviour that is plainly wrong.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The one thing that makes a bug here quickly
+        fixable is the log output for the host you saw it on - the "Log output"
+        field below says where each host keeps it.
+
+        Please search the existing issues first: this is a small, spare-time
+        project, and several reports are already known.
+
+        If the problem is "this does not look like the film", use the **Visual
+        fidelity** template instead - this project's visual standard is
+        docs/film-reference.md, and that template asks for the right evidence.
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Which host?
+      description: All five hosts share one renderer, but each has its own host loop and window handling.
+      options:
+        - macOS screen saver (.saver)
+        - Windows screen saver (.scr)
+        - Linux xscreensaver hack
+        - Desktop app (windowed or --fullscreen)
+        - Web build (browser)
+        - Not host-specific (renderer, content, or a build failure)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release version, or the commit you built from if you built from source.
+      placeholder: "2.0.3, or the output of `git rev-parse --short HEAD`"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS, GPU, and driver
+      description: |
+        The renderer is graded on a real GPU, so the graphics stack matters more
+        here than the OS version. For the web build, name the browser and
+        version, and whether the page reported WebGPU or WebGL2.
+      placeholder: "macOS 15.5, Apple M3 / Windows 11 24H2, RTX 4070, 560.94 / Ubuntu 24.04, Mesa 24.0.9 / Firefox 141, WebGL2 fallback"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead. A black screen, a crash, a hang, a wrong value - say which.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands, flags, or on-screen steps. If the settings matter, include them (see below).
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: |
+        Where the log comes from depends on the host. Paste what you can get;
+        an empty field is much better filled with "nothing was logged" than left
+        blank, because that is itself a finding.
+
+        - **Desktop app**: run it with logging on, e.g.
+          `RUST_LOG=info cargo run --release -p gibson-app`. Output goes to stderr.
+        - **macOS screen saver**: the Rust side logs to the unified log under the
+          saver's subsystem:
+          `log show --last 5m --info --predicate 'subsystem == "org.hackthegibson.TheGibson"'`
+        - **Windows `.scr`**: launch it from cmd or PowerShell so it attaches to
+          the console (`set RUST_LOG=info`, then `Gibson.scr /s`). When Windows
+          launched it as a screen saver there is no console - in that case say
+          which arguments Windows passed, which is usually `/s`, `/p <hwnd>` or
+          `/c`.
+        - **Linux xscreensaver**: `RUST_LOG=info hack-the-gibson`, or run the
+          shipped harness: `bash platform/linux/smoke-test.sh target/release/gibson-app`.
+          The host logs an `adapter` line and the presented/skipped frame
+          counters on exit.
+        - **Web build**: the browser console (DevTools > Console), plus the text
+          in the `#status` element if anything is shown on the page. A startup
+          failure is reported in both places by design.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings
+      description: |
+        Contents of `gibson.toml` (macOS: ~/Library/Application Support/hack-the-gibson/gibson.toml,
+        Linux: ~/.config/hack-the-gibson/gibson.toml, Windows: %APPDATA%\hack-the-gibson\gibson.toml),
+        any command-line flags, or the query string for the web build.
+        Settings are clamped on load, so a bad value cannot put the renderer out
+        of range - but it does change what you see, so it is worth pasting.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues for this problem
+          required: true
+        - label: This is not a visual-fidelity report (those use the other template)
+          required: false

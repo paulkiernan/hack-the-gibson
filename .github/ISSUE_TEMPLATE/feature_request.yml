@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest a change to what the project does, on any host.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome. Two things shape what can be accepted here: the film
+        is the specification for how the Gibson looks (see
+        [docs/film-reference.md](https://github.com/paulkiernan/hack-the-gibson/blob/main/docs/film-reference.md)),
+        and every host has to keep working - the web build in particular runs
+        inside a WebGL2 envelope that rules out storage buffers, compute
+        shaders, and several other modern features.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+      description: The change itself, in a sentence or two.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why?
+      description: What this improves - fidelity to the film, a host that behaves better, an easier contribution - and who it is for.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hosts
+    attributes:
+      label: Which hosts does this affect?
+      multiple: true
+      options:
+        - macOS screen saver (.saver)
+        - Windows screen saver (.scr)
+        - Linux xscreensaver hack
+        - Desktop app (windowed or --fullscreen)
+        - Web build (browser)
+        - Renderer only (all hosts)
+        - Build, CI, or packaging
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to get the same result, including "change nothing and document it", which is sometimes the right answer here.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Help
+      options:
+        - label: I would be willing to implement this (CONTRIBUTING.md has the build commands and the crate map)
+          required: false

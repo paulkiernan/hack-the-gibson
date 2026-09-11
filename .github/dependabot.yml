@@ -1,0 +1,48 @@
+# Weekly dependency updates, grouped so a week's releases arrive as a couple of
+# pull requests instead of one per crate. Cargo.lock is committed, so a cargo PR
+# carries the lockfile bump with the manifest change.
+#
+# Commit prefixes are Conventional Commits types with no scope: a dependency
+# bump is repo-wide, and `build`/`ci` are the types that fit (see
+# CONTRIBUTING.md). Security updates are a separate Dependabot feature and are
+# not configured here.
+version: 2
+updates:
+  # The crates the renderer is built on: wgpu, winit, glam, bytemuck, fontdue,
+  # and the hosts' platform crates.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    groups:
+      # Patch and minor bumps ride together; they are the ones that arrive every
+      # week and can normally be merged as a batch.
+      cargo-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      # A major bump (wgpu 30 -> 31, winit 0.30 -> 0.31) is the kind of update
+      # that needs a renderer change, so it gets its own pull request rather
+      # than being buried inside a green grouped one.
+      cargo-major:
+        applies-to: version-updates
+        update-types:
+          - "major"
+
+  # The actions in .github/workflows, which are pinned to commit SHAs and have
+  # to be bumped in every workflow file at once.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

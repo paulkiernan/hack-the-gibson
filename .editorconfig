@@ -1,0 +1,40 @@
+# Editor defaults, matched to the style the tree already uses. Nothing in CI
+# reads this file; it exists so that editors agree with each other (and with
+# rustfmt) instead of reformatting whole files as a side effect of a small edit.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Makefiles need real tab characters for recipe lines.
+[{Makefile,**.mk}]
+indent_style = tab
+
+# Workflows, issue forms, Dependabot config, and the site.
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.{html,css,js,json}]
+indent_size = 2
+
+# shell scripts (platform/linux/smoke-test.sh).
+[*.sh]
+indent_size = 2
+
+# Cargo manifests and rust-toolchain.toml.
+[*.toml]
+indent_size = 4
+
+# Markdown wraps at 80 columns throughout docs/ and the README.
+[*.md]
+indent_size = 2
+max_line_length = 80
+
+# rustfmt's default max_width; a line at or under this is never re-wrapped by CI.
+[*.rs]
+max_line_length = 100
