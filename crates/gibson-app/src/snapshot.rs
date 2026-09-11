@@ -22,7 +22,7 @@ pub fn run(cli: &Cli) -> Result<(), String> {
     let out_path = cli
         .snapshot
         .clone()
-        .ok_or_else(|| "internal: snapshot mode without a path")?;
+        .ok_or("internal: snapshot mode without a path")?;
     let (width, height) = cli::parse_size(&cli.size)?;
     let settings = cli::resolve(cli)?;
     let time = cli.time.max(0.0);

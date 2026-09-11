@@ -8,7 +8,7 @@
 //! Batch 0 scaffold: this wiring is already real. With the Batch 0 stub content generators and
 //! scene it produces a haze-colored frame; Batch 2 verifies it end to end.
 
-use gibson_render::{RenderError, Renderer};
+use gibson_render::{RenderError, Renderer, Viewport};
 use gibson_scene::Scene;
 use gibson_types::Settings;
 
@@ -143,9 +143,11 @@ impl Gibson {
         let renderer = Renderer::new(
             &instance,
             surface,
-            width,
-            height,
-            renderer_scale,
+            Viewport {
+                width,
+                height,
+                scale: renderer_scale,
+            },
             &atlas,
             &floor,
             &settings,
@@ -177,7 +179,11 @@ impl Gibson {
             );
             self.last_scale = renderer_scale;
         }
-        self.renderer.resize(width, height, renderer_scale);
+        self.renderer.resize(Viewport {
+            width,
+            height,
+            scale: renderer_scale,
+        });
     }
 
     /// Advance the scene to `time_seconds` (host monotonic; the first call defines `t = 0`) and

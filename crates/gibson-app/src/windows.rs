@@ -226,7 +226,7 @@ fn run_fullscreen(settings: Settings) -> Result<(), String> {
                 0,
                 class_name.as_ptr(),
                 null_mut(),
-                (WS_POPUP | WS_VISIBLE) as u32,
+                WS_POPUP | WS_VISIBLE,
                 rc.left,
                 rc.top,
                 w,

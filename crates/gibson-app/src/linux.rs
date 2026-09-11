@@ -25,19 +25,23 @@ use std::time::{Duration, Instant};
 
 use gibson_core::{Gibson, SurfaceTarget};
 use x11_dl::xlib::{
-    ConfigureNotify, DestroyNotify, StructureNotifyMask, XConfigureEvent, XDestroyWindowEvent,
-    XErrorEvent, XEvent, XWindowAttributes, Xlib,
+    ConfigureNotify, DestroyNotify, StructureNotifyMask, Window, XConfigureEvent,
+    XDestroyWindowEvent, XErrorEvent, XEvent, XWindowAttributes, Xlib,
 };
 
 use crate::cli::{self, Cli};
 
 /// Parse an X11 window id given as a decimal or `0x`-hex string.
-fn parse_xid(s: &str) -> Result<u64, String> {
+///
+/// Parsed straight into `Window` (the platform's `XID`) rather than a fixed-width `u64` so an id
+/// too large for the platform is rejected instead of silently truncated, and so the call site
+/// needs no cast.
+fn parse_xid(s: &str) -> Result<Window, String> {
     let s = s.trim();
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        u64::from_str_radix(hex, 16).map_err(|_| format!("invalid window id {s:?}"))
+        Window::from_str_radix(hex, 16).map_err(|_| format!("invalid window id {s:?}"))
     } else {
-        s.parse::<u64>()
+        s.parse::<Window>()
             .map_err(|_| format!("invalid window id {s:?}"))
     }
 }
@@ -55,7 +59,7 @@ pub fn run(cli: &Cli) -> Result<(), String> {
     let xid_arg = cli
         .x11_window_arg()
         .ok_or_else(|| "no X11 window requested".to_string())?;
-    let xid = parse_xid(&xid_arg)? as x11_dl::xlib::Window;
+    let xid = parse_xid(&xid_arg)?;
     let settings = cli::resolve(cli)?;
 
     let xlib = Xlib::open().map_err(|e| format!("cannot load libX11: {e}"))?;

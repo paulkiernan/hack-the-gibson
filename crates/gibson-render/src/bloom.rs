@@ -209,7 +209,7 @@ impl Bloom {
             PREFILTER_NAME,
         );
         // Downsample 1/2 -> 1/4 -> 1/8 -> 1/16 -> 1/32.
-        for i in 0..LEVELS - 1 {
+        for (i, &name) in DOWN_NAMES.iter().enumerate() {
             self.blit(
                 encoder,
                 &self.input_bgs[i],
@@ -217,11 +217,11 @@ impl Bloom {
                 &self.levels[i + 1],
                 wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                 profile.as_deref_mut(),
-                DOWN_NAMES[i],
+                name,
             );
         }
         // Upsample back up, accumulating additively onto each level.
-        for i in (0..LEVELS - 1).rev() {
+        for (i, &name) in UP_NAMES.iter().enumerate().rev() {
             self.blit(
                 encoder,
                 &self.input_bgs[i + 1],
@@ -229,7 +229,7 @@ impl Bloom {
                 &self.levels[i],
                 wgpu::LoadOp::Load,
                 profile.as_deref_mut(),
-                UP_NAMES[i],
+                name,
             );
         }
     }
@@ -245,10 +245,7 @@ impl Bloom {
         mut profile: Option<&mut Profile>,
         name: &'static str,
     ) {
-        let tw = match profile.as_deref_mut() {
-            Some(p) => p.pass(name),
-            None => None,
-        };
+        let tw = profile.as_mut().and_then(|p| p.pass(name));
         let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("gibson-bloom-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {

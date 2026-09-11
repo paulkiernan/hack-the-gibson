@@ -61,31 +61,45 @@ pub struct FrameUniform {
     pub signal: [f32; 4],
 }
 
+/// The targets one frame's uniform describes.
+///
+/// `width`/`height` are the *output* size (what the composite's final target measures) and
+/// `scene` the size the HDR chain actually renders at: the CRT signal resolution when the CRT
+/// pass is active, the output size otherwise. The two differ only for `crt > 0`.
+///
+/// `scene_srgb` describes the format the *composite* writes (the signal buffer when the CRT pass
+/// follows) and `final_srgb` the final output target; both are `true` when the hardware encodes
+/// sRGB on store, and each pass branches on its own flag.
+///
+/// They are one value because a frame's uniform is always filled for one size/format decision:
+/// the resolution, the signal resolution and the two sRGB flags come from the same frame and are
+/// read back out of the same struct.
+#[derive(Clone, Copy, Debug)]
+pub struct FrameTargets {
+    /// Output size: what the final target measures.
+    pub width: u32,
+    pub height: u32,
+    /// Size the HDR scene chain renders at; the output size unless the CRT pass is on.
+    pub scene: (u32, u32),
+    /// The composite's target encodes sRGB on store.
+    pub scene_srgb: bool,
+    /// The final target encodes sRGB on store.
+    pub final_srgb: bool,
+}
+
 impl FrameUniform {
     /// Fill the struct for one frame.
-    ///
-    /// `width`/`height` are the *output* size (what the composite's final target measures) and
-    /// `scene` the size the HDR chain actually renders at: the CRT signal resolution when the
-    /// CRT pass is active, the output size otherwise. The two differ only for `crt > 0`.
-    ///
-    /// `scene_srgb` describes the format the *composite* writes (the signal buffer when the CRT
-    /// pass follows) and `final_srgb` the final output target; both are `true` when the hardware
-    /// encodes sRGB on store, and each pass branches on its own flag.
     pub fn new(
         view_proj: Mat4,
         prev_view_proj: Mat4,
         frame: &FrameData,
-        width: u32,
-        height: u32,
-        scene: (u32, u32),
-        scene_srgb: bool,
-        final_srgb: bool,
+        targets: FrameTargets,
     ) -> FrameUniform {
         let s = frame.settings;
         let palette = &frame.palette;
         let siege = Palette::SIEGE;
-        let (w, h) = (width.max(1) as f32, height.max(1) as f32);
-        let (sw, sh) = (scene.0.max(1) as f32, scene.1.max(1) as f32);
+        let (w, h) = (targets.width.max(1) as f32, targets.height.max(1) as f32);
+        let (sw, sh) = (targets.scene.0.max(1) as f32, targets.scene.1.max(1) as f32);
         FrameUniform {
             view_proj: view_proj.to_cols_array(),
             prev_view_proj: prev_view_proj.to_cols_array(),
@@ -114,9 +128,9 @@ impl FrameUniform {
                 s.bloom,
                 s.motion_blur,
                 s.grain,
-                if scene_srgb { 0.0 } else { 1.0 },
+                if targets.scene_srgb { 0.0 } else { 1.0 },
             ],
-            post: [s.crt, if final_srgb { 0.0 } else { 1.0 }, 0.0, 0.0],
+            post: [s.crt, if targets.final_srgb { 0.0 } else { 1.0 }, 0.0, 0.0],
             tower_body_siege: siege.tower_body,
             tower_text_siege: col4(siege.tower_text),
             highlight_siege: col4(siege.highlight),

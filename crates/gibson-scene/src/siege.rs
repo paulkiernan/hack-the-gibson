@@ -87,7 +87,7 @@ impl SiegeSpread {
         // every direction and the whole skyline is covered in a bounded time; a corner seed
         // would arrive as a plane wave off one edge.
         let lo = grid / 4;
-        let choices = (grid + 1) / 2;
+        let choices = grid.div_ceil(2);
         let si = lo + rng.random_range(0..choices);
         let sj = lo + rng.random_range(0..choices);
         let origin = city.center(si * grid + sj);

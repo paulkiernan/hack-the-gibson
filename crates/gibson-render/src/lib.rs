@@ -77,7 +77,7 @@ use pulses::Pulses;
 use std::fmt;
 use targets::{SceneTargets, HDR_FORMAT};
 use towers::Towers;
-use uniforms::{projection_matrix, view_matrix, FrameUniform};
+use uniforms::{projection_matrix, view_matrix, FrameTargets, FrameUniform};
 use util::pipeline_layout;
 
 /// Errors surfaced by the renderer.
@@ -168,11 +168,32 @@ pub struct Renderer {
     profile: Option<profile::Profile>,
 }
 
-fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
-    (
-        ((width as f32) * scale).round().max(1.0) as u32,
-        ((height as f32) * scale).round().max(1.0) as u32,
-    )
+/// A renderer's presentation request: the size in logical pixels the host asked for, plus the
+/// super-sampling scale its pixel budget allows on top of it.
+///
+/// [`Viewport::scaled_dimensions`] turns the two into the pixel size every target in the chain is
+/// allocated at, which is what `Renderer::width`/`height` hold. They are one value rather than
+/// three loose arguments because they are only ever meaningful, chosen and changed together, and
+/// because the clamped result is what both the constructor and [`Renderer::resize`] must agree
+/// on.
+#[derive(Clone, Copy, Debug)]
+pub struct Viewport {
+    /// Requested size in logical pixels.
+    pub width: u32,
+    pub height: u32,
+    /// Super-sampling scale: `render_scale` after the host's on-screen pixel budget.
+    pub scale: f32,
+}
+
+impl Viewport {
+    /// The pixel size the renderer allocates: rounded, and never zero (a zero-sized target is a
+    /// wgpu validation error).
+    pub fn scaled_dimensions(self) -> (u32, u32) {
+        (
+            ((self.width as f32) * self.scale).round().max(1.0) as u32,
+            ((self.height as f32) * self.scale).round().max(1.0) as u32,
+        )
+    }
 }
 
 /// Signal resolution of the CRT path as a fraction of the output.
@@ -291,7 +312,7 @@ fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) 
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    let bpr = atlas.width as u32 * 4;
+    let bpr = atlas.width * 4;
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &tex,
@@ -411,17 +432,18 @@ fn upload_floor(device: &wgpu::Device, queue: &wgpu::Queue, floor: &FloorMap) ->
 
 impl Renderer {
     /// Initialize the GPU: adapter/device/surface plus the full pipeline set.
+    ///
+    /// The surface is configured -- and every target allocated -- at
+    /// `viewport.scaled_dimensions()`.
     pub async fn new(
         instance: &wgpu::Instance,
         surface: Option<wgpu::Surface<'static>>,
-        width: u32,
-        height: u32,
-        scale: f32,
+        viewport: Viewport,
         atlas: &AtlasImage,
         floor: &FloorMap,
         settings: &Settings,
     ) -> Result<Renderer, RenderError> {
-        let (width, height) = scaled_dimensions(width, height, scale);
+        let (width, height) = viewport.scaled_dimensions();
         log::info!(
             "gibson-render: requesting adapter (surface: {}, size {width}x{height})",
             surface.is_some()
@@ -577,8 +599,6 @@ impl Renderer {
         let bloom0 = build_bloom_and_groups(
             &device,
             &mut bloom,
-            render_width,
-            render_height,
             &uniform_buf,
             &post_sampler,
             &post,
@@ -602,7 +622,7 @@ impl Renderer {
             surface_format,
             width,
             height,
-            scale,
+            scale: viewport.scale,
             render_width,
             render_height,
             crt,
@@ -633,9 +653,10 @@ impl Renderer {
         })
     }
 
-    /// Reconfigure the surface (or just the offscreen size) at `width·scale × height·scale`.
-    pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
-        let (w, h) = scaled_dimensions(width, height, scale);
+    /// Reconfigure the surface (or just the offscreen size) to `viewport`'s scaled dimensions.
+    pub fn resize(&mut self, viewport: Viewport) {
+        let scale = viewport.scale;
+        let (w, h) = viewport.scaled_dimensions();
         self.width = w;
         self.height = h;
         self.scale = scale;
@@ -922,11 +943,13 @@ impl Renderer {
             vp,
             prev,
             frame,
-            self.width,
-            self.height,
-            (self.render_width, self.render_height),
-            scene_srgb,
-            final_format.is_srgb(),
+            FrameTargets {
+                width: self.width,
+                height: self.height,
+                scene: (self.render_width, self.render_height),
+                scene_srgb,
+                final_srgb: final_format.is_srgb(),
+            },
         );
         self.queue
             .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniform));
@@ -1348,14 +1371,20 @@ impl Renderer {
 fn build_bloom_and_groups(
     device: &wgpu::Device,
     bloom: &mut Bloom,
-    width: u32,
-    height: u32,
     uniform: &wgpu::Buffer,
     sampler: &wgpu::Sampler,
     post: &Post,
     targets: &SceneTargets,
 ) -> (wgpu::BindGroup, wgpu::BindGroup, wgpu::BindGroup) {
-    bloom.rebuild(device, width, height, uniform, sampler, &targets.view_a);
+    // The bloom chain shadows the scene size, and `targets` already carries it.
+    bloom.rebuild(
+        device,
+        targets.width,
+        targets.height,
+        uniform,
+        sampler,
+        &targets.view_a,
+    );
     build_view_bind_groups(device, uniform, bloom, sampler, post, targets)
 }
 

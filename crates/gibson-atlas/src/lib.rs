@@ -101,7 +101,7 @@ mod tests {
 
     const LAYER_BYTES: usize = layout::LAYER_BYTES;
 
-    fn layer<'a>(rgba: &'a [u8], l: usize) -> &'a [u8] {
+    fn layer(rgba: &[u8], l: usize) -> &[u8] {
         &rgba[l * LAYER_BYTES..(l + 1) * LAYER_BYTES]
     }
 
@@ -324,8 +324,8 @@ mod tests {
         for &seed in &SEEDS {
             let (img, panels) = generate_internal(seed);
             let mut panel_means = Vec::new();
-            for p in 0..28 {
-                let blocks = &panels[p];
+            // Panels 0..28 are the mosaics this test grades; 28..32 are hero directory lists.
+            for (p, blocks) in panels[..28].iter().enumerate() {
                 assert!(
                     blocks.len() >= 10,
                     "seed {seed} mosaic panel {p}: only {} blocks",

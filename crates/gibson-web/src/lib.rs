@@ -48,6 +48,12 @@ const FAILED_PREFIX: &str = "Hack the Gibson could not start";
 const NO_ADAPTER_HINT: &str =
     "WebGPU/WebGL2 unavailable - try Chrome 113+, Safari 26+, or Firefox with WebGPU enabled";
 
+/// The animation-frame callback slot. `Option` because it is only installed once `State` exists,
+/// `RefCell` because the callback re-schedules itself from inside itself, and named because the
+/// nesting is otherwise unreadable in the struct. Keeping the `Closure` owned is what keeps the
+/// browser callback registered: dropping it drops the JS function.
+type RafClosure = RefCell<Option<Closure<dyn FnMut(f64)>>>;
+
 /// Long-lived per-page state shared by the animation loop and the resize listener.
 struct State {
     gibson: RefCell<Gibson>,
@@ -56,7 +62,7 @@ struct State {
     resize_pending: Cell<bool>,
     consecutive_errors: Cell<u32>,
     /// The animation-frame callback, stored so it can re-schedule itself and outlive `boot`.
-    raf: RefCell<Option<Closure<dyn FnMut(f64)>>>,
+    raf: RafClosure,
     /// The resize listener handle, kept alive for the life of the page.
     resize_listener: RefCell<Option<Closure<dyn FnMut()>>>,
 }

@@ -155,25 +155,33 @@ pub fn geometry(rng: &mut StdRng) -> Vec<Block> {
             let force_tall = si + 1 == n_spans
                 && first_narrow == Some(ci)
                 && sb - sa >= TALL_MIN_LINES * MONO_PITCH;
-            fill_span(rng, &mut out, &mut id, cx, cw, sa, sb, force_tall);
+            fill_span(
+                rng,
+                &mut out,
+                &mut id,
+                Segment { cx, cw, sa, sb },
+                force_tall,
+            );
         }
     }
     out
 }
 
-/// Stack mono-text segments down one track inside `[sa, sb)`; the final segment of each span
-/// flushes crisply to the span end (column groups terminate with small dark pockets that differ
-/// per track, so neighboring columns end ragged like the film's broken block edges).
-fn fill_span(
-    rng: &mut StdRng,
-    out: &mut Vec<Block>,
-    id: &mut u8,
+/// One text segment's slot in a panel: the column track it occupies (`cx`/`cw`) and the vertical
+/// span it may fill (`sa`/`sb`), both in panel pixels.
+#[derive(Clone, Copy)]
+struct Segment {
     cx: i32,
     cw: i32,
     sa: i32,
     sb: i32,
-    force_tall: bool,
-) {
+}
+
+/// Stack mono-text segments down one track inside `[sa, sb)`; the final segment of each span
+/// flushes crisply to the span end (column groups terminate with small dark pockets that differ
+/// per track, so neighboring columns end ragged like the film's broken block edges).
+fn fill_span(rng: &mut StdRng, out: &mut Vec<Block>, id: &mut u8, seg: Segment, force_tall: bool) {
+    let Segment { cx, cw, sa, sb } = seg;
     // Leave a small dark pocket before the next anchor/panel edge; the guaranteed tall segment
     // must not be shortened, so its span stays flush.
     let end = if force_tall {
@@ -245,7 +253,7 @@ pub(crate) fn hex_row(rng: &mut StdRng, cols: usize) -> String {
 /// variable lengths (ragged right edge like live terminal output).
 fn numeric_row(rng: &mut StdRng, cols: usize) -> String {
     let cols = cols.max(1);
-    let target = cols.saturating_sub(rng.random_range(0..=(cols / 5).max(1).min(8)));
+    let target = cols.saturating_sub(rng.random_range(0..=(cols / 5).clamp(1, 8)));
     let mut s = String::with_capacity(target + 4);
     while s.len() < target {
         let r = rng.random_range(0..100);
@@ -288,7 +296,7 @@ fn keyword_row(rng: &mut StdRng, cols: usize) -> String {
 /// Binary string row: dense 0/1 with a few o/x markers, e.g. `0000ox0110x`. Variable length.
 fn binary_row(rng: &mut StdRng, cols: usize) -> String {
     let cols = cols.max(1);
-    let target = cols.saturating_sub(rng.random_range(0..=(cols / 6).max(1).min(6)));
+    let target = cols.saturating_sub(rng.random_range(0..=(cols / 6).clamp(1, 6)));
     let mut s = String::with_capacity(target + 2);
     while s.len() < target {
         let r = rng.random_range(0..100);

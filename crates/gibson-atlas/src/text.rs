@@ -133,7 +133,7 @@ impl GlyphCache {
             let cy0 = top.max(by0);
             let cy1 = bot.min(by1);
             if cx1 > cx0 && cy1 > cy0 {
-                let mw = g.m.width as usize;
+                let mw = g.m.width;
                 for y in cy0..cy1 {
                     let row = y as usize * PW;
                     let cov_row = (y - top) as usize * mw;

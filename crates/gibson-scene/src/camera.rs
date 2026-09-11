@@ -92,7 +92,7 @@ impl CameraRig {
             return;
         }
 
-        let span = path.len_segments() as f32;
+        let span = path.len_segments();
         self.s = (self.s + settings.fly_speed * dt).rem_euclid(span);
 
         let pos = Vec3::from_array(path.position(self.s));

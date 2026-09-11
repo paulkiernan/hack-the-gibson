@@ -5,9 +5,9 @@
 //! prints a skip message (and passes) when no adapter/device is available, e.g. on CI runners
 //! without a GPU.
 
-use gibson_render::{RenderError, Renderer};
+use gibson_render::{RenderError, Renderer, Viewport};
 use gibson_types::*;
-use std::f32::consts::PI;
+use std::f32::consts::{FRAC_1_SQRT_2, PI};
 
 fn settings() -> Settings {
     Settings {
@@ -36,7 +36,16 @@ fn renderer_at(width: u32, height: u32, scale: f32, settings: &Settings) -> Opti
     let a = atlas();
     let f = floor();
     match pollster::block_on(Renderer::new(
-        &instance, None, width, height, scale, &a, &f, settings,
+        &instance,
+        None,
+        Viewport {
+            width,
+            height,
+            scale,
+        },
+        &a,
+        &f,
+        settings,
     )) {
         Ok(r) => Some(r),
         Err(RenderError::NoAdapter | RenderError::NoDevice(_)) => {
@@ -118,10 +127,10 @@ fn central_25(rgba: &[u8], w: usize, h: usize) -> (usize, usize) {
 fn pipelines_compile_offscreen() {
     // The pipeline-creation gate: any WGSL validation error fails Renderer::new.
     let s = settings();
-    let r = renderer_at(512, 384, 1.0, &s);
-    if r.is_none() {
-        return;
-    }
+    // No adapter (a headless runner): `renderer_at` has printed its skip note and there is no
+    // pipeline set here to compile. Creating the renderer is the whole test, so the value is
+    // only kept to prove it was created.
+    let _ = renderer_at(512, 384, 1.0, &s);
 }
 
 #[test]
@@ -472,7 +481,7 @@ fn populated_frame() -> (Vec<TowerInstance>, Vec<PulseInstance>, CameraPose) {
             // Corridor along the lane the camera flies: towers ahead of it (z < 140) within
             // +/-260 laterally, out to the fog end. Near towers flank the camera like canyon
             // walls, faces toward the lane.
-            if x.abs() > 260.0 || z >= 140.0 || z < -820.0 {
+            if x.abs() > 260.0 || !(-820.0..140.0).contains(&z) {
                 continue;
             }
             let panel = |k: i32| {
@@ -781,7 +790,16 @@ fn renderer_with_assets(
 ) -> Option<Renderer> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     match pollster::block_on(Renderer::new(
-        &instance, None, width, height, 1.0, atlas, floor, settings,
+        &instance,
+        None,
+        Viewport {
+            width,
+            height,
+            scale: 1.0,
+        },
+        atlas,
+        floor,
+        settings,
     )) {
         Ok(r) => Some(r),
         Err(RenderError::NoAdapter | RenderError::NoDevice(_)) => {
@@ -929,7 +947,7 @@ fn raster_strength(rgba: &[u8], w: usize, h: usize) -> f64 {
             rows.push(sum / BAND as f64);
         }
         let mean = rows.iter().sum::<f64>() / rows.len() as f64;
-        if mean < 0.02 || mean > 0.9 {
+        if !(0.02..=0.9).contains(&mean) {
             continue; // black or blown out: no room for a pattern either way
         }
         // Detrend with a 9-row moving average and keep the residual.
@@ -1179,8 +1197,8 @@ fn tower_base_glows_and_is_more_opaque_than_the_top() {
     // floor behind it is close enough that fog leaves most of its brightness.
     let down = camera(
         [0.0, 120.0, 120.0],
-        [0.0, -0.7071, -0.7071],
-        [0.0, 0.7071, -0.7071],
+        [0.0, -FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+        [0.0, FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
     );
     let render_plane = |r: &mut Renderer, towers: &[TowerInstance]| -> Vec<u8> {
         let mut pal = Palette::NORMAL;
@@ -1864,18 +1882,7 @@ fn probe_floor_features() {
         let (lx, lz) = (x % 4, z % 4);
         match (bx, bz) {
             // Orthogonal run with a 90-degree corner.
-            (0, 0) => [
-                if lz == 2 {
-                    3
-                } else if lz == 3 {
-                    0
-                } else {
-                    0
-                },
-                0,
-                0,
-                255,
-            ],
+            (0, 0) => [if lz == 2 { 3 } else { 0 }, 0, 0, 255],
             // Diagonal run: a 45-degree jog cornering into an orthogonal run.
             (1, 0) => [
                 if lz == 0 && lx == 0 {

@@ -521,6 +521,24 @@ struct Board {
     jumps: Vec<Jump>,
 }
 
+/// How one net's copper is drawn: the net that claims the cells, its thickness class, the flag
+/// bits, and the brightness it paints where it lands on bare substrate.
+///
+/// The four are decided together when a route is planned and then reused for every cell of that
+/// route, so they travel as one value through [`Board::paint`], [`Board::mark`] and the stamping
+/// helpers rather than as four separate arguments.
+#[derive(Clone, Copy)]
+struct Copper {
+    /// Cell owner: what makes "no two nets share a copper cell" measurable.
+    net: u32,
+    /// Heaviest thickness class seen at the cell wins ([`GAUGE_THIN`], [`GAUGE_MED`], ...).
+    gauge: u8,
+    /// Extra flag bits OR'd into the cell ([`B_BUS`], [`B_HATCH`], ...).
+    flags: u8,
+    /// Substrate brightness painted where the cell is still bare ([`A_EMPTY`]).
+    base: u8,
+}
+
 impl Board {
     fn new() -> Self {
         Self {
@@ -604,32 +622,32 @@ impl Board {
     /// still bare substrate. Package cells are never painted by the router - copper reaches
     /// them only through the deliberate pin escape in [`Board::pin_escape`].
     #[inline]
-    fn paint(&mut self, x: usize, z: usize, bits: u8, gauge: u8, flags: u8, base: u8, net: u32) {
+    fn paint(&mut self, x: usize, z: usize, bits: u8, copper: Copper) {
         if in_package(x, z) {
             return;
         }
-        self.claim(x, z, net);
+        self.claim(x, z, copper.net);
         let c = &mut self.grid[flat(x, z)];
         c[0] |= bits;
-        if gauge > c[2] & GAUGE_MASK {
-            c[2] = (c[2] & !GAUGE_MASK) | gauge;
+        if copper.gauge > c[2] & GAUGE_MASK {
+            c[2] = (c[2] & !GAUGE_MASK) | copper.gauge;
         }
-        c[2] |= flags;
+        c[2] |= copper.flags;
         if c[3] == A_EMPTY {
-            c[3] = base;
+            c[3] = copper.base;
         }
     }
 
     /// Record one unit segment from `(x, z)` toward direction `di`: the outgoing bit on
     /// the source and the mirror bit (from the shared [`floor_dir_mirror`] table) on the
     /// wrapped destination, so continuity holds on the torus and across diagonals.
-    fn mark(&mut self, x: usize, z: usize, di: usize, gauge: u8, flags: u8, base: u8, net: u32) {
+    fn mark(&mut self, x: usize, z: usize, di: usize, copper: Copper) {
         let (dx, dz) = DIR_STEP[di];
         let bit = DIR_BITS[di];
         let (mirror, _, _) = floor_dir_mirror(bit).expect("single direction bit");
         let (nx, nz) = step_to(x, z, dx, dz);
-        self.paint(x, z, bit, gauge, flags, base, net);
-        self.paint(nx, nz, mirror, gauge, flags, base, net);
+        self.paint(x, z, bit, copper);
+        self.paint(nx, nz, mirror, copper);
     }
 
     /// The mandatory one-cell escape from an IC pin to its port: the pin's outward
@@ -642,48 +660,58 @@ impl Board {
         let (mirror, _, _) = floor_dir_mirror(bit).expect("single direction bit");
         self.claim(pin.cell.0, pin.cell.1, net);
         self.grid[flat(pin.cell.0, pin.cell.1)][0] |= bit;
-        self.paint(pin.port.0, pin.port.1, mirror, GAUGE_THIN, 0, base, net);
+        self.paint(
+            pin.port.0,
+            pin.port.1,
+            mirror,
+            Copper {
+                net,
+                gauge: GAUGE_THIN,
+                flags: 0,
+                base,
+            },
+        );
     }
 
     /// Stamp a routed polyline. A step spanning more than one cell is a layer change: both
     /// ends become vias, nothing is drawn across the gap, and the jump is recorded so the
     /// tests can check every one of them is a matched pair with real trace on each side.
-    fn stamp_path(&mut self, path: &[(usize, usize)], gauge: u8, flags: u8, base: u8, net: u32) {
+    fn stamp_path(&mut self, path: &[(usize, usize)], copper: Copper) {
         for pair in path.windows(2) {
             let (a, b) = (pair[0], pair[1]);
             if octi(a, b) > 1 {
                 self.feature(a.0, a.1, G_VIA);
-                self.claim(a.0, a.1, net);
+                self.claim(a.0, a.1, copper.net);
                 self.feature(b.0, b.1, G_VIA);
-                self.claim(b.0, b.1, net);
+                self.claim(b.0, b.1, copper.net);
                 self.jumps.push(Jump {
                     from: a,
                     to: b,
-                    net,
+                    net: copper.net,
                 });
             } else {
                 let di = step_dir(a, b);
-                self.mark(a.0, a.1, di, gauge, flags, base, net);
+                self.mark(a.0, a.1, di, copper);
             }
         }
     }
 
     /// Stamp a whole routed polyline cell by cell.
-    fn stamp(&mut self, path: &[(usize, usize)], gauge: u8, flags: u8, base: u8, net: u32) {
+    fn stamp(&mut self, path: &[(usize, usize)], copper: Copper) {
         for pair in path.windows(2) {
             let di = step_dir(pair[0], pair[1]);
-            self.mark(pair[0].0, pair[0].1, di, gauge, flags, base, net);
+            self.mark(pair[0].0, pair[0].1, di, copper);
         }
     }
 
     /// Stamp a path in runs, skipping cells the router may not enter, so a long rail can
     /// break around a package instead of cutting straight through it.
-    fn stamp_runs(&mut self, path: &[(usize, usize)], gauge: u8, flags: u8, base: u8, net: u32) {
+    fn stamp_runs(&mut self, path: &[(usize, usize)], copper: Copper) {
         let mut run: Vec<(usize, usize)> = Vec::new();
         for &c in path {
             if self.blocked[flat(c.0, c.1)] {
                 if run.len() >= 2 {
-                    self.stamp(&run, gauge, flags, base, net);
+                    self.stamp(&run, copper);
                 }
                 run.clear();
             } else {
@@ -691,7 +719,7 @@ impl Board {
             }
         }
         if run.len() >= 2 {
-            self.stamp(&run, gauge, flags, base, net);
+            self.stamp(&run, copper);
         }
     }
 
@@ -1063,7 +1091,7 @@ fn best_partner(pins: &[PinRef], taken: &[bool], i: usize, target: usize) -> Opt
         let (model, recipe) = best_recipe(a, b, target);
         let score =
             ((model.abs_diff(target) / 2) * 2) as u64 + direction_penalty(a, b, recipe) as u64;
-        let jitter = ((j as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 52) as u64;
+        let jitter = (j as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 52;
         let key = score * 4096 + jitter;
         let slot = if a.tower == b.tower {
             &mut same
@@ -1417,7 +1445,15 @@ fn emit_nets(board: &mut Board, rng: &mut StdRng, pkgs: &[TowerPkg], nets: &mut 
 
         match best {
             Some(r) => {
-                board.stamp_path(&r.path, GAUGE_THIN, 0, base, net.id);
+                board.stamp_path(
+                    &r.path,
+                    Copper {
+                        net: net.id,
+                        gauge: GAUGE_THIN,
+                        flags: 0,
+                        base,
+                    },
+                );
                 if r.sweep.1 > r.sweep.0 {
                     // The sweep joins the lane lattice as a bundle track: heavier gauge, and
                     // flagged so the board reads as buses rather than as loose spaghetti.
@@ -1426,7 +1462,17 @@ fn emit_nets(board: &mut Board, rng: &mut StdRng, pkgs: &[TowerPkg], nets: &mut 
                     for pair in r.path[r.sweep.0..=r.sweep.1].windows(2) {
                         if octi(pair[0], pair[1]) == 1 {
                             let di = step_dir(pair[0], pair[1]);
-                            board.mark(pair[0].0, pair[0].1, di, GAUGE_MED, B_BUS, base, net.id);
+                            board.mark(
+                                pair[0].0,
+                                pair[0].1,
+                                di,
+                                Copper {
+                                    net: net.id,
+                                    gauge: GAUGE_MED,
+                                    flags: B_BUS,
+                                    base,
+                                },
+                            );
                         }
                     }
                 }
@@ -1518,7 +1564,15 @@ fn ground_stub(board: &mut Board, router: &mut Router, net: u32, pin: (usize, us
     let mut strapped = vec![pin, port];
     let via = match site {
         Some(c) => {
-            board.stamp_path(&run, GAUGE_THIN, 0, base, net);
+            board.stamp_path(
+                &run,
+                Copper {
+                    net,
+                    gauge: GAUGE_THIN,
+                    flags: 0,
+                    base,
+                },
+            );
             strapped.extend_from_slice(&run);
             c
         }
@@ -1676,7 +1730,7 @@ fn emit_bus(board: &mut Board, rng: &mut StdRng) -> Option<Vec<Track>> {
         let mut centerline: Vec<(usize, usize)> = vec![(lane_x(m), lane_z(n))];
         for l in 0..legs {
             let along_x = if axis { l % 2 == 0 } else { l % 2 == 1 };
-            let steps = rng.random_range(2..=4) as i32 * if rng.random_bool(0.5) { 1 } else { -1 };
+            let steps: i32 = rng.random_range(2..=4) * if rng.random_bool(0.5) { 1 } else { -1 };
             let (dx, dz) = if along_x {
                 (steps.signum(), 0)
             } else {
@@ -1684,7 +1738,7 @@ fn emit_bus(board: &mut Board, rng: &mut StdRng) -> Option<Vec<Track>> {
             };
             // One lane step is one whole tower pitch: walk it cell by cell so the
             // centreline is a real cell path the offsetting can follow.
-            for _ in 0..(steps.abs() as usize * CELLS_PER_TOWER) {
+            for _ in 0..(steps.unsigned_abs() as usize * CELLS_PER_TOWER) {
                 let last = *centerline.last().unwrap();
                 centerline.push(step_to(last.0, last.1, dx, dz));
             }
@@ -1723,7 +1777,15 @@ fn emit_bus(board: &mut Board, rng: &mut StdRng) -> Option<Vec<Track>> {
         let mut bundle = Vec::with_capacity(paths.len());
         for path in paths {
             let net = board.alloc_net();
-            board.stamp(&path, GAUGE_MED, B_BUS, base, net);
+            board.stamp(
+                &path,
+                Copper {
+                    net,
+                    gauge: GAUGE_MED,
+                    flags: B_BUS,
+                    base,
+                },
+            );
             bundle.push(Track { net, cells: path });
         }
         return Some(bundle);
@@ -1975,8 +2037,7 @@ impl Router {
                 continue;
             }
             let (cx, cz) = (cell % SIZE, cell / SIZE);
-            for nd in 0..8 {
-                let (dx, dz) = DIR_STEP[nd];
+            for (nd, &(dx, dz)) in DIR_STEP.iter().enumerate() {
                 let (nx, nz) = step_to(cx, cz, dx, dz);
                 if !free_for(board, nx, nz, net) {
                     continue;
@@ -2012,8 +2073,7 @@ impl Router {
             // and the search will find it, so the whole span sweep is skipped. That keeps the
             // layer-changing search - which is the expensive one - down to the directions that
             // are actually obstructed.
-            for nd in 0..8 {
-                let (dx, dz) = DIR_STEP[nd];
+            for (nd, &(dx, dz)) in DIR_STEP.iter().enumerate() {
                 let (ax, az) = step_to(cx, cz, dx, dz);
                 if free_for(board, ax, az, net) {
                     continue;
@@ -2098,7 +2158,15 @@ fn emit_rails(board: &mut Board, rng: &mut StdRng) {
                 path.push(cell);
             }
             path.push(path[0]);
-            board.stamp_runs(&path, GAUGE_POWER, 0, base, NET_SUPPLY);
+            board.stamp_runs(
+                &path,
+                Copper {
+                    net: NET_SUPPLY,
+                    gauge: GAUGE_POWER,
+                    flags: 0,
+                    base,
+                },
+            );
         }
     }
 }
@@ -2176,7 +2244,17 @@ fn emit_via_fanout(board: &mut Board, rng: &mut StdRng, buses: &[Vec<Track>]) ->
                     break;
                 }
                 // Extend the track one more cell, then the end lands on a via.
-                board.mark(cur.0, cur.1, di, GAUGE_THIN, 0, 210, net);
+                board.mark(
+                    cur.0,
+                    cur.1,
+                    di,
+                    Copper {
+                        net,
+                        gauge: GAUGE_THIN,
+                        flags: 0,
+                        base: 210,
+                    },
+                );
                 cur = next;
             }
             if cur != last {
@@ -3234,8 +3312,7 @@ mod tests {
         for z in 0..SIZE {
             for x in 0..SIZE {
                 let bits = f.data[flat(x, z)][0];
-                for i in 0..8 {
-                    let bit = DIR_BITS[i];
+                for &bit in &DIR_BITS {
                     if bits & bit == 0 {
                         continue;
                     }
