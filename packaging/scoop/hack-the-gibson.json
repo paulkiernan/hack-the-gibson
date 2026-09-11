@@ -1,0 +1,49 @@
+{
+    "version": "2.0.3",
+    "description": "Tower-city flythrough from Hackers (1995), rendered with wgpu, as a Windows screen saver.",
+    "homepage": "https://paulkiernan.github.io/hack-the-gibson/",
+    "license": "GPL-3.0-or-later",
+    "url": "https://github.com/paulkiernan/hack-the-gibson/releases/download/2.0.3/Gibson.scr",
+    "hash": "52e676be77cb439e96bac246acc22379e3980aa9fbbeb5e1aecadcaba967fa7f",
+    "installer": {
+        "script": [
+            "$scr = Join-Path $dir 'Gibson.scr'",
+            "if (!(Test-Path -LiteralPath $scr)) { throw \"Gibson.scr is missing from $dir - the release asset did not land where this manifest expects it.\" }",
+            "if ($global) {",
+            "    $dst = Join-Path (Join-Path $env:SystemRoot 'System32') 'Gibson.scr'",
+            "    Copy-Item -LiteralPath $scr -Destination $dst -Force",
+            "    Write-Host \"Gibson.scr copied to $dst, which is where Windows looks when it builds the screen saver list.\"",
+            "} else {",
+            "    Write-Host \"Gibson.scr is installed at $scr\"",
+            "    Write-Host 'A per-user install is not offered in Screen Saver Settings, which only lists savers kept in %SystemRoot%\\System32; see the notes this manifest prints below.'",
+            "}"
+        ]
+    },
+    "uninstaller": {
+        "script": [
+            "if ($global) {",
+            "    $dst = Join-Path (Join-Path $env:SystemRoot 'System32') 'Gibson.scr'",
+            "    if (Test-Path -LiteralPath $dst) {",
+            "        Remove-Item -LiteralPath $dst -Force",
+            "        Write-Host \"Removed $dst\"",
+            "    }",
+            "}"
+        ]
+    },
+    "notes": [
+        "Run it now: double-click \"$dir\\Gibson.scr\", or from a terminal run \"$dir\\Gibson.scr\" /s (a mouse move or Esc ends it). \"/c\" opens its settings file.",
+        "To select it in Windows: Settings > Personalization > Lock screen > Screen saver. That list is built from the saver files kept in %SystemRoot%\\System32, so this per-user install is not shown there. Either reinstall with `scoop install -g hack-the-gibson` from an elevated shell, or copy \"$dir\\Gibson.scr\" into %SystemRoot%\\System32 as administrator - the latter is what the file's right-click Install verb does.",
+        "This manifest deliberately writes no registry values. What selects a saver is HKCU\\Control Panel\\Desktop\\SCRNSAVE.EXE, which the dialog above sets for you; Microsoft documents setting it from a file path with: rundll32.exe desk.cpl,InstallScreenSaver \"$dir\\Gibson.scr\"",
+        "Gibson.scr is an unsigned x86_64 Rust/wgpu build, so SmartScreen may warn the first time it runs."
+    ],
+    "checkver": {
+        "github": "https://github.com/paulkiernan/hack-the-gibson"
+    },
+    "autoupdate": {
+        "url": "https://github.com/paulkiernan/hack-the-gibson/releases/download/$version/Gibson.scr",
+        "hash": {
+            "url": "https://github.com/paulkiernan/hack-the-gibson/releases/download/$version/SHA256SUMS",
+            "find": "$sha256\\s+Gibson\\.scr"
+        }
+    }
+}

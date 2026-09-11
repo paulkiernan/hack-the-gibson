@@ -1,0 +1,164 @@
+# Maintainer: Paul Kiernan <paulkiernan1@gmail.com>
+#
+# ── Why the package and the installed executable are `hack-the-gibson` ─────
+# Upstream xscreensaver has shipped its own, unrelated `gibson` hack since
+# 5.44 (Jamie Zawinski, 2020 - same film, same filenames, different program).
+# Two separate things follow:
+#
+#   * Installing a descriptor as /usr/share/xscreensaver/config/gibson.xml is a
+#     pacman conflicting-files error, because Arch's `xscreensaver` package
+#     already owns that path (plus the `gibson` executable and
+#     /usr/share/man/man6/gibson.6.gz).
+#   * Even without the file collision, xscreensaver prepends its own hacks
+#     directory to $PATH when it resolves the `programs:` list, so a second
+#     `gibson` on PATH would lose to upstream's and never run.
+#
+# The executable basename is not cosmetic either: xscreensaver-settings finds a
+# hack's descriptor by taking the basename of the installed program and looking
+# for <config-dir>/<basename>.xml. Renaming either half breaks the option sheet
+# in the settings dialog. Do not "tidy" this back to `gibson`.
+#
+# ── Upstream status: read this as "not yet verified on real hardware" ──────
+# The X11 / xscreensaver host is smoke-tested in CI on every push: it adopts a
+# real X window under Xvfb with a software Vulkan rasteriser (lavapipe), via
+# both $XSCREENSAVER_WINDOW and --window-id, and asserts a nonzero presented
+# frame count on exit. That is a software rasteriser under a headless X server:
+# it is not verified on real hardware with a real GPU driver, and not verified
+# under the xscreensaver daemon itself.
+#
+# ── depends: read out of the code, not copied from a template ──────────────
+# The released Linux binary links almost nothing. `readelf -d` (verified with
+# llvm-objdump against the 2.0.3 asset) shows only libgcc_s.so.1, libm.so.6,
+# libc.so.6 and the dynamic loader. Every X11 / Wayland / Vulkan library is
+# dlopen()ed at runtime, so namcap cannot see any of them and each one has to
+# be written down here by hand:
+#
+#   glibc             libc.so.6, libm.so.6 - linked
+#   gcc-libs          libgcc_s.so.1 - linked; the only dlopen-free library, and
+#                     therefore the only entry namcap would have found itself
+#   libx11            libX11.so.6 (x11-dl `xlib`) and libX11-xcb.so.1 (x11-dl
+#                     `xlib_xcb`); the libx11 package ships both
+#   libxcb            libxcb.so.1 - x11rb is built with its `dl-libxcb` feature
+#   libxcursor        libXcursor.so.1 (x11-dl `xcursor`)
+#   libxi             libXi.so.6 (x11-dl `xinput2`)
+#   libxkbcommon      libxkbcommon.so.0 (xkbcommon-dl)
+#   libxkbcommon-x11  libxkbcommon-x11.so.0 (xkbcommon-dl `x11`, enabled by
+#                     winit's `x11` feature)
+#   wayland           libwayland-client.so.0 and libwayland-egl.so.1, dlopened
+#                     because winit enables `wayland-dlopen`
+#   vulkan-icd-loader libvulkan.so.1, dlopened by ash's `loaded` feature
+#
+# Confidence in these entries is high, but note what "verified" means here: the
+# dlopen call sites were read in the exact crate versions Cargo.lock pins
+# (x11-dl 2.21.0, x11rb 0.13.2, xkbcommon-dl 0.4.2, wayland-sys 0.31.11,
+# ash 0.38.0, wgpu-hal 30.0.1), and each soname -> package mapping was checked
+# against that package's published file list on archlinux.org. What has NOT
+# been done is a build in a clean chroot, so the dependency set is not
+# confirmed complete or minimal by namcap. Do that before pushing to the AUR:
+#
+#   namcap PKGBUILD
+#   namcap hack-the-gibson-*.pkg.tar.zst
+#
+# Deliberately NOT in depends: libglvnd. wgpu's GLES backend is compiled into
+# the binary and can dlopen libEGL.so.1, but the native code asks for
+# wgpu::Backends::PRIMARY, which on Linux means Vulkan only, so the GL backend
+# is never initialised and libEGL is never opened. Add libglvnd only if that
+# selection changes.
+#
+# ── sha256sums is a placeholder ───────────────────────────────────────────
+# Run `updpkgsums` in this directory to fill it in; the AUR will not build a
+# package whose sums do not match, and a package with 'SKIP' installs without
+# verifying anything. GitHub generates tag tarballs on demand, so a force-retag
+# invalidates any recorded digest. Measured at release time, the 2.0.3 tarball
+# hashed to 3edbcb68182943e073c64a07535b29a26cc64c39e2c2479af98514e96481a298 -
+# recorded purely as a cross-check for whoever runs updpkgsums. Pasting that
+# digest in place of 'SKIP' also works, but only if the tarball has not been
+# regenerated since; updpkgsums is the option that cannot go stale.
+
+pkgname=hack-the-gibson
+pkgver=2.0.3
+pkgrel=1
+pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)'
+arch=('x86_64')
+url='https://github.com/paulkiernan/hack-the-gibson'
+license=('GPL-3.0-or-later')
+
+depends=(
+  'glibc'
+  'gcc-libs'
+  'libx11'
+  'libxcb'
+  'libxcursor'
+  'libxi'
+  'libxkbcommon'
+  'libxkbcommon-x11'
+  'wayland'
+  'vulkan-icd-loader'
+)
+
+# base-devel (required by makepkg regardless) supplies gcc and pkgconf. Nothing
+# in the dependency graph links a system library at build time: the only three
+# crates that would probe pkg-config - x11-dl, wayland-sys and khronos-egl - are
+# all built in their dlopen/dynamic configuration, and wayland-sys returns from
+# its build script before probing at all. x11-dl's probes tolerate a missing .pc
+# file, so the library packages above do not need to be in makedepends. If the
+# build does fail while probing X11, add the corresponding package here.
+makedepends=('cargo')
+
+# xscreensaver is optional rather than a hard dependency: the same binary is
+# also a standalone desktop app, and xscreensaver is X11-only - on a Wayland
+# session the documented route is --fullscreen under swayidle.
+optdepends=(
+  'xscreensaver: run it as an xscreensaver hack (X11 only)'
+  'vulkan-radeon: Vulkan driver for AMD GPUs'
+  'vulkan-intel: Vulkan driver for Intel GPUs'
+  'vulkan-nouveau: Vulkan driver for NVIDIA GPUs (Nouveau)'
+  'nvidia-utils: Vulkan driver for NVIDIA GPUs (proprietary)'
+  'vulkan-swrast: software Vulkan rasteriser (lavapipe), for machines with no GPU driver'
+)
+
+source=("$pkgname-$pkgver.tar.gz::https://github.com/paulkiernan/hack-the-gibson/archive/refs/tags/$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  # RUSTUP_TOOLCHAIN is deliberately not exported: the sources carry
+  # rust-toolchain.toml, and the Rust package guidelines say not to override the
+  # toolchain when upstream already pins one.
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export CARGO_TARGET_DIR=target
+  # -p gibson-app only: the workspace also holds gibson-web (wasm) and
+  # gibson-ffi (the macOS .saver staticlib), neither of which belongs in this
+  # package. No crate in the workspace defines features, so --all-features would
+  # only widen the build to the wrong targets.
+  cargo build --frozen --release -p gibson-app
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  # The selection the Linux job in .github/workflows/ci.yml runs on every push.
+  # gibson-core and gibson-render are left out on purpose: their tests want a
+  # graphics adapter (they skip themselves when there is none, but CI only runs
+  # them on macOS, where a real one exists). `makepkg --nocheck` skips this.
+  cargo test --frozen -p gibson-scene -p gibson-atlas -p gibson-floor -p gibson-app
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  # Basename must be hack-the-gibson so it matches the descriptor - see the
+  # header comment.
+  install -Dm0755 target/release/gibson-app "$pkgdir/usr/bin/hack-the-gibson"
+
+  install -Dm0644 platform/linux/hack-the-gibson.xml \
+    "$pkgdir/usr/share/xscreensaver/config/hack-the-gibson.xml"
+
+  install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm0644 platform/linux/README.md \
+    "$pkgdir/usr/share/doc/$pkgname/xscreensaver-host.md"
+}
