@@ -656,7 +656,11 @@ impl Board {
                 self.claim(a.0, a.1, net);
                 self.feature(b.0, b.1, G_VIA);
                 self.claim(b.0, b.1, net);
-                self.jumps.push(Jump { from: a, to: b, net });
+                self.jumps.push(Jump {
+                    from: a,
+                    to: b,
+                    net,
+                });
             } else {
                 let di = step_dir(a, b);
                 self.mark(a.0, a.1, di, gauge, flags, base, net);
@@ -786,7 +790,10 @@ fn emit_mounting_holes(board: &mut Board) -> Vec<(usize, usize)> {
     let mut holes = Vec::new();
     for (a, b) in [(2usize, 2usize), (6, 2), (2, 6), (6, 6)] {
         let (x, z) = (lane_x(a), lane_z(b));
-        assert!(!in_package(x, z), "mounting hole must sit on a free lane intersection");
+        assert!(
+            !in_package(x, z),
+            "mounting hole must sit on a free lane intersection"
+        );
         board.feature(x, z, G_HOLE);
         board.blocked[flat(x, z)] = true;
         holes.push((x, z));
@@ -856,7 +863,8 @@ struct Net {
 /// hops. Since a net that fails to route costs no copper, only the pins it held, planning
 /// more medium and long nets than the board will take is what buys back the spread. The
 /// realised mix is the one the tests measure, not this one.
-const NET_BANDS: [(usize, usize, usize); 4] = [(25, 4, 14), (40, 22, 46), (25, 50, 84), (10, 86, 130)];
+const NET_BANDS: [(usize, usize, usize); 4] =
+    [(25, 4, 14), (40, 22, 46), (25, 50, 84), (10, 86, 130)];
 
 /// Signal copper the planner will commit to, in cells. A single-layer board this dense runs
 /// out of room long before it runs out of pins: what the packages, the rails, the bundles, the
@@ -902,8 +910,8 @@ fn port_of(pin: (usize, usize)) -> (usize, usize) {
 #[inline]
 fn nearest_lane(v: usize, first: usize) -> usize {
     let d = (v as i64 - first as i64).rem_euclid(SIZE as i64);
-    (((d + CELLS_PER_TOWER as i64 / 2) / CELLS_PER_TOWER as i64)
-        .rem_euclid(TOWERS_PER_SIDE as i64)) as usize
+    (((d + CELLS_PER_TOWER as i64 / 2) / CELLS_PER_TOWER as i64).rem_euclid(TOWERS_PER_SIDE as i64))
+        as usize
 }
 
 /// The lane intersection nearest a port.
@@ -1053,10 +1061,15 @@ fn best_partner(pins: &[PinRef], taken: &[bool], i: usize, target: usize) -> Opt
             continue;
         }
         let (model, recipe) = best_recipe(a, b, target);
-        let score = ((model.abs_diff(target) / 2) * 2) as u64 + direction_penalty(a, b, recipe) as u64;
+        let score =
+            ((model.abs_diff(target) / 2) * 2) as u64 + direction_penalty(a, b, recipe) as u64;
         let jitter = ((j as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 52) as u64;
         let key = score * 4096 + jitter;
-        let slot = if a.tower == b.tower { &mut same } else { &mut cross };
+        let slot = if a.tower == b.tower {
+            &mut same
+        } else {
+            &mut cross
+        };
         if slot.is_none_or(|(best, _)| key < best) {
             *slot = Some((key, j));
         }
@@ -1197,7 +1210,12 @@ fn haul_waypoints(
         } else {
             n = (n + dir).rem_euclid(ring);
         }
-        wps.push(free_lane(board, lane_x(m as usize), lane_z(n as usize), net));
+        wps.push(free_lane(
+            board,
+            lane_x(m as usize),
+            lane_z(n as usize),
+            net,
+        ));
     }
     for _ in 0..short {
         if axis == 0 {
@@ -1205,7 +1223,12 @@ fn haul_waypoints(
         } else {
             m = (m + sdir).rem_euclid(ring);
         }
-        wps.push(free_lane(board, lane_x(m as usize), lane_z(n as usize), net));
+        wps.push(free_lane(
+            board,
+            lane_x(m as usize),
+            lane_z(n as usize),
+            net,
+        ));
     }
     wps.push(to);
     wps
@@ -1350,13 +1373,15 @@ fn emit_nets(board: &mut Board, rng: &mut StdRng, pkgs: &[TowerPkg], nets: &mut 
         let straight = octi(from_port, to_port) as u32;
 
         let mut best: Option<Route> = match net.recipe {
-            Recipe::Direct => router
-                .route(board, from_port, to_port, net.id, false)
-                .map(|(path, cost)| Route {
-                    path,
-                    cost,
-                    sweep: (0, 0),
-                }),
+            Recipe::Direct => {
+                router
+                    .route(board, from_port, to_port, net.id, false)
+                    .map(|(path, cost)| Route {
+                        path,
+                        cost,
+                        sweep: (0, 0),
+                    })
+            }
             Recipe::HaulX | Recipe::HaulZ => route_haul(board, &mut router, &net, false),
         }
         .filter(|r| r.path.len() <= cap);
@@ -1368,13 +1393,15 @@ fn emit_nets(board: &mut Board, rng: &mut StdRng, pkgs: &[TowerPkg], nets: &mut 
             .is_none_or(|r| r.cost > straight * STEP_STRAIGHT * DETOUR_LIMIT)
         {
             let with_vias = match net.recipe {
-                Recipe::Direct => router
-                    .route(board, from_port, to_port, net.id, true)
-                    .map(|(path, cost)| Route {
-                        path,
-                        cost,
-                        sweep: (0, 0),
-                    }),
+                Recipe::Direct => {
+                    router
+                        .route(board, from_port, to_port, net.id, true)
+                        .map(|(path, cost)| Route {
+                            path,
+                            cost,
+                            sweep: (0, 0),
+                        })
+                }
                 Recipe::HaulX | Recipe::HaulZ => route_haul(board, &mut router, &net, true),
             }
             .filter(|r| r.path.len() <= cap);
@@ -1635,7 +1662,11 @@ fn bus_track(centerline: &[(usize, usize)], o: i32) -> Vec<(usize, usize)> {
 fn emit_bus(board: &mut Board, rng: &mut StdRng) -> Option<Vec<Track>> {
     for _ in 0..32 {
         let tracks = rng.random_range(2..=3);
-        let offsets: Vec<i32> = if tracks == 2 { vec![-1, 1] } else { vec![-1, 0, 1] };
+        let offsets: Vec<i32> = if tracks == 2 {
+            vec![-1, 1]
+        } else {
+            vec![-1, 0, 1]
+        };
         let axis = rng.random_bool(0.5);
         let legs = rng.random_range(1..=3);
         let (m, n) = (
@@ -1771,13 +1802,15 @@ fn via_ok(board: &Board, x: usize, z: usize, axis: (i32, i32), net: u32) -> bool
     if c[0] != 0 || c[1] != 0 {
         return false;
     }
-    [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)].iter().all(|&(dx, dz)| {
-        if (dx, dz) == axis || (dx, dz) == (-axis.0, -axis.1) {
-            return true;
-        }
-        let (nx, nz) = step_to(x, z, dx, dz);
-        !foreign_copper(board, nx, nz, net)
-    })
+    [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)]
+        .iter()
+        .all(|&(dx, dz)| {
+            if (dx, dz) == axis || (dx, dz) == (-axis.0, -axis.1) {
+                return true;
+            }
+            let (nx, nz) = step_to(x, z, dx, dz);
+            !foreign_copper(board, nx, nz, net)
+        })
 }
 
 /// Cells strictly between two jump endpoints, along the jump's own line. The router walks
@@ -1785,7 +1818,9 @@ fn via_ok(board: &Board, x: usize, z: usize, axis: (i32, i32), net: u32) -> bool
 fn between_cells(a: (usize, usize), b: (usize, usize)) -> Vec<(usize, usize)> {
     let (dx, dz) = (delta(a.0, b.0).signum(), delta(a.1, b.1).signum());
     let span = delta(a.0, b.0).abs().max(delta(a.1, b.1).abs());
-    (1..span).map(|i| step_to(a.0, a.1, dx * i, dz * i)).collect()
+    (1..span)
+        .map(|i| step_to(a.0, a.1, dx * i, dz * i))
+        .collect()
 }
 
 /// One routed net: the cell path, what the router charged for it, and the index range of the
@@ -1896,143 +1931,147 @@ impl Router {
         if start == goal || !free_for(board, to.0, to.1, net) {
             return None;
         }
-    // Wrapped distance to the goal, per row and per column, so the heuristic is two
-    // lookups and a multiply rather than two `rem_euclid` calls - it runs once per edge the
-    // search relaxes, and there are hundreds of thousands of those in one tile.
-    let mut to_col = [0u32; SIZE];
-    let mut to_row = [0u32; SIZE];
-    for (i, v) in to_col.iter_mut().enumerate() {
-        let d = (i as i64 - to.0 as i64).rem_euclid(SIZE as i64) as usize;
-        *v = d.min(SIZE - d) as u32;
-    }
-    for (i, v) in to_row.iter_mut().enumerate() {
-        let d = (i as i64 - to.1 as i64).rem_euclid(SIZE as i64) as usize;
-        *v = d.min(SIZE - d) as u32;
-    }
-    let h = |cx: usize, cz: usize| -> u32 {
-        let (adx, adz) = (to_col[cx], to_row[cz]);
-        (adx.max(adz) - adx.min(adz)) * STEP_STRAIGHT + adx.min(adz) * STEP_DIAG
-    };
-    self.generation = self.generation.wrapping_add(1);
-    let gen = self.generation;
-    self.heap.clear();
-    #[allow(clippy::cast_possible_truncation)]
-    let start_node = (start * NODE_DIRS + DIR_NONE) as u32;
-    self.seen[start * NODE_DIRS + DIR_NONE] = gen;
-    self.dist[start * NODE_DIRS + DIR_NONE] = 0;
-    self.heap
-        .push(Reverse((h(from.0, from.1) * SEARCH_GREED, 0, start_node)));
-    let mut found = None;
-    let mut pops = 0usize;
-    while let Some(Reverse((_, g, node))) = self.heap.pop() {
-        pops += 1;
-        if pops > SEARCH_BUDGET {
-            return None;
+        // Wrapped distance to the goal, per row and per column, so the heuristic is two
+        // lookups and a multiply rather than two `rem_euclid` calls - it runs once per edge the
+        // search relaxes, and there are hundreds of thousands of those in one tile.
+        let mut to_col = [0u32; SIZE];
+        let mut to_row = [0u32; SIZE];
+        for (i, v) in to_col.iter_mut().enumerate() {
+            let d = (i as i64 - to.0 as i64).rem_euclid(SIZE as i64) as usize;
+            *v = d.min(SIZE - d) as u32;
         }
-        let node = node as usize;
-        let cell = node / NODE_DIRS;
-        let dir = node % NODE_DIRS;
-        if cell == goal {
-            found = Some((node as u32, g));
-            break;
+        for (i, v) in to_row.iter_mut().enumerate() {
+            let d = (i as i64 - to.1 as i64).rem_euclid(SIZE as i64) as usize;
+            *v = d.min(SIZE - d) as u32;
         }
-        if g > self.dist[node] {
-            continue;
-        }
-        let (cx, cz) = (cell % SIZE, cell / SIZE);
-        for nd in 0..8 {
-            let (dx, dz) = DIR_STEP[nd];
-            let (nx, nz) = step_to(cx, cz, dx, dz);
-            if !free_for(board, nx, nz, net) {
+        let h = |cx: usize, cz: usize| -> u32 {
+            let (adx, adz) = (to_col[cx], to_row[cz]);
+            (adx.max(adz) - adx.min(adz)) * STEP_STRAIGHT + adx.min(adz) * STEP_DIAG
+        };
+        self.generation = self.generation.wrapping_add(1);
+        let gen = self.generation;
+        self.heap.clear();
+        #[allow(clippy::cast_possible_truncation)]
+        let start_node = (start * NODE_DIRS + DIR_NONE) as u32;
+        self.seen[start * NODE_DIRS + DIR_NONE] = gen;
+        self.dist[start * NODE_DIRS + DIR_NONE] = 0;
+        self.heap
+            .push(Reverse((h(from.0, from.1) * SEARCH_GREED, 0, start_node)));
+        let mut found = None;
+        let mut pops = 0usize;
+        while let Some(Reverse((_, g, node))) = self.heap.pop() {
+            pops += 1;
+            if pops > SEARCH_BUDGET {
+                return None;
+            }
+            let node = node as usize;
+            let cell = node / NODE_DIRS;
+            let dir = node % NODE_DIRS;
+            if cell == goal {
+                found = Some((node as u32, g));
+                break;
+            }
+            if g > self.dist[node] {
                 continue;
             }
-            let mut cost = if is_diagonal(nd) { STEP_DIAG } else { STEP_STRAIGHT };
-            if let Some(prev) = node_heading(dir) {
-                cost += turn_cost(prev, nd);
-            }
-            if board.plane[flat(nx, nz)] {
-                cost += COST_CROSS_PLANE;
-            }
-            let ng = g + cost;
-            let nnode = flat(nx, nz) * NODE_DIRS + nd;
-            if self.seen[nnode] != gen || ng < self.dist[nnode] {
-                self.seen[nnode] = gen;
-                self.dist[nnode] = ng;
-                self.prev[nnode] = node as u32;
-                self.heap
-                    .push(Reverse((ng + h(nx, nz) * SEARCH_GREED, ng, nnode as u32)));
-            }
-        }
-        // Only a state sitting on the top layer may change layer: two jumps in a row would be
-        // a via with no copper between them.
-        if !jumps || dir > DIR_NONE {
-            continue;
-        }
-        // A jump only ever helps where the next cell is not ours to take: if the router can
-        // simply step that way, stepping is cheaper (a via pair costs far more than a step)
-        // and the search will find it, so the whole span sweep is skipped. That keeps the
-        // layer-changing search - which is the expensive one - down to the directions that
-        // are actually obstructed.
-        for nd in 0..8 {
-            let (dx, dz) = DIR_STEP[nd];
-            let (ax, az) = step_to(cx, cz, dx, dz);
-            if free_for(board, ax, az, net) {
-                continue;
-            }
-            // The near via's keep-out does not depend on the span, so it is tested once.
-            if !via_ok(board, cx, cz, (dx, dz), net) {
-                continue;
-            }
-            for span in VIA_MIN_SPAN..=VIA_MAX_SPAN {
-                // Each span adds one more cell to tunnel under, so the cell it adds is tested
-                // here and the sweep stops at the first one that is drilled: a via or a
-                // mounting hole goes through every layer, so the inner-layer run underneath
-                // cannot cross it. Everything else - another net's trace, a package body - is
-                // only on the top layer and can be run under.
-                let (ix, iz) = step_to(cx, cz, dx * (span - 1) as i32, dz * (span - 1) as i32);
-                let ic = board.grid[flat(ix, iz)];
-                if board.own[flat(ix, iz)]
-                    || board.owns(ix, iz) == net
-                    || barred.contains(&(ix, iz))
-                    || ic[1] == G_HOLE
-                    || (ic[1] == G_VIA && board.owns(ix, iz) != net)
-                {
-                    break;
-                }
-                let s = span as i32;
-                let (vx, vz) = step_to(cx, cz, dx * s, dz * s);
-                // Never land a jump on the destination: the trace has to reach its pin on
-                // the top layer, not arrive from underneath it.
-                if (vx, vz) == to || !via_ok(board, vx, vz, (dx, dz), net) {
+            let (cx, cz) = (cell % SIZE, cell / SIZE);
+            for nd in 0..8 {
+                let (dx, dz) = DIR_STEP[nd];
+                let (nx, nz) = step_to(cx, cz, dx, dz);
+                if !free_for(board, nx, nz, net) {
                     continue;
                 }
-                let ng = g + COST_VIA_PAIR + span as u32 * STEP_STRAIGHT;
-                let nnode = flat(vx, vz) * NODE_DIRS + DIR_NONE + 1 + nd;
+                let mut cost = if is_diagonal(nd) {
+                    STEP_DIAG
+                } else {
+                    STEP_STRAIGHT
+                };
+                if let Some(prev) = node_heading(dir) {
+                    cost += turn_cost(prev, nd);
+                }
+                if board.plane[flat(nx, nz)] {
+                    cost += COST_CROSS_PLANE;
+                }
+                let ng = g + cost;
+                let nnode = flat(nx, nz) * NODE_DIRS + nd;
                 if self.seen[nnode] != gen || ng < self.dist[nnode] {
                     self.seen[nnode] = gen;
                     self.dist[nnode] = ng;
                     self.prev[nnode] = node as u32;
                     self.heap
-                        .push(Reverse((ng + h(vx, vz) * SEARCH_GREED, ng, nnode as u32)));
+                        .push(Reverse((ng + h(nx, nz) * SEARCH_GREED, ng, nnode as u32)));
+                }
+            }
+            // Only a state sitting on the top layer may change layer: two jumps in a row would be
+            // a via with no copper between them.
+            if !jumps || dir > DIR_NONE {
+                continue;
+            }
+            // A jump only ever helps where the next cell is not ours to take: if the router can
+            // simply step that way, stepping is cheaper (a via pair costs far more than a step)
+            // and the search will find it, so the whole span sweep is skipped. That keeps the
+            // layer-changing search - which is the expensive one - down to the directions that
+            // are actually obstructed.
+            for nd in 0..8 {
+                let (dx, dz) = DIR_STEP[nd];
+                let (ax, az) = step_to(cx, cz, dx, dz);
+                if free_for(board, ax, az, net) {
+                    continue;
+                }
+                // The near via's keep-out does not depend on the span, so it is tested once.
+                if !via_ok(board, cx, cz, (dx, dz), net) {
+                    continue;
+                }
+                for span in VIA_MIN_SPAN..=VIA_MAX_SPAN {
+                    // Each span adds one more cell to tunnel under, so the cell it adds is tested
+                    // here and the sweep stops at the first one that is drilled: a via or a
+                    // mounting hole goes through every layer, so the inner-layer run underneath
+                    // cannot cross it. Everything else - another net's trace, a package body - is
+                    // only on the top layer and can be run under.
+                    let (ix, iz) = step_to(cx, cz, dx * (span - 1) as i32, dz * (span - 1) as i32);
+                    let ic = board.grid[flat(ix, iz)];
+                    if board.own[flat(ix, iz)]
+                        || board.owns(ix, iz) == net
+                        || barred.contains(&(ix, iz))
+                        || ic[1] == G_HOLE
+                        || (ic[1] == G_VIA && board.owns(ix, iz) != net)
+                    {
+                        break;
+                    }
+                    let s = span as i32;
+                    let (vx, vz) = step_to(cx, cz, dx * s, dz * s);
+                    // Never land a jump on the destination: the trace has to reach its pin on
+                    // the top layer, not arrive from underneath it.
+                    if (vx, vz) == to || !via_ok(board, vx, vz, (dx, dz), net) {
+                        continue;
+                    }
+                    let ng = g + COST_VIA_PAIR + span as u32 * STEP_STRAIGHT;
+                    let nnode = flat(vx, vz) * NODE_DIRS + DIR_NONE + 1 + nd;
+                    if self.seen[nnode] != gen || ng < self.dist[nnode] {
+                        self.seen[nnode] = gen;
+                        self.dist[nnode] = ng;
+                        self.prev[nnode] = node as u32;
+                        self.heap
+                            .push(Reverse((ng + h(vx, vz) * SEARCH_GREED, ng, nnode as u32)));
+                    }
                 }
             }
         }
-    }
-    let (goal_node, cost) = found?;
-    let mut path = Vec::new();
-    let mut cur = goal_node;
-    while cur != start_node {
-        let cell = (cur as usize) / NODE_DIRS;
-        path.push((cell % SIZE, cell / SIZE));
-        let p = self.prev[cur as usize];
-        if p == u32::MAX {
-            break;
+        let (goal_node, cost) = found?;
+        let mut path = Vec::new();
+        let mut cur = goal_node;
+        while cur != start_node {
+            let cell = (cur as usize) / NODE_DIRS;
+            path.push((cell % SIZE, cell / SIZE));
+            let p = self.prev[cur as usize];
+            if p == u32::MAX {
+                break;
+            }
+            cur = p;
         }
-        cur = p;
-    }
-    path.push(from);
-    path.reverse();
-    Some((path, cost))
+        path.push(from);
+        path.reverse();
+        Some((path, cost))
     }
 }
 
@@ -2112,7 +2151,10 @@ fn emit_via_fanout(board: &mut Board, rng: &mut StdRng, buses: &[Vec<Track>]) ->
         let mut pending: Vec<((usize, usize), u32)> = Vec::new();
         for track in &buses[b] {
             let net = track.net;
-            let (last, prev) = match (track.cells.last(), track.cells.get(track.cells.len().saturating_sub(2))) {
+            let (last, prev) = match (
+                track.cells.last(),
+                track.cells.get(track.cells.len().saturating_sub(2)),
+            ) {
                 (Some(&l), Some(&p)) => (l, p),
                 _ => {
                     ok = false;
@@ -2209,10 +2251,12 @@ fn pour_fillable(board: &Board, x: usize, z: usize) -> bool {
     // of merging with the traces it flows around - from signal copper. Copper that is already
     // ground it runs straight up to, because a plane and a ground stub are the same net and
     // that is exactly how a real board connects them.
-    [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)].iter().all(|&(mx, mz)| {
-        let (nx, nz) = step_to(x, z, mx, mz);
-        board.owns(nx, nz) == NET_GROUND || !board.solid(nx, nz)
-    })
+    [(1i32, 0i32), (-1, 0), (0, 1), (0, -1)]
+        .iter()
+        .all(|&(mx, mz)| {
+            let (nx, nz) = step_to(x, z, mx, mz);
+            board.owns(nx, nz) == NET_GROUND || !board.solid(nx, nz)
+        })
 }
 
 /// Flood the ground plane across the whole tile: every cell that keeps the one-cell clearance
@@ -2418,7 +2462,12 @@ mod tests {
                 "brightness A out of 128..=255: {}",
                 c[3]
             );
-            assert_eq!(c[2] & 0b1111_0000, 0, "reserved B bits must stay zero: {:#010b}", c[2]);
+            assert_eq!(
+                c[2] & 0b1111_0000,
+                0,
+                "reserved B bits must stay zero: {:#010b}",
+                c[2]
+            );
             assert!(c[1] <= G_HOLE, "ground feature G out of 0..=8: {}", c[1]);
             assert!(
                 !(c[1] == G_POUR && c[0] != 0),
@@ -2440,9 +2489,16 @@ mod tests {
             assert!(kinds[g as usize] > 0, "no {what} on the tile");
         }
         let towers = TOWERS_PER_SIDE * TOWERS_PER_SIDE;
-        assert_eq!(kinds[G_IC as usize], towers * 25, "one 5 x 5 body per tower");
+        assert_eq!(
+            kinds[G_IC as usize],
+            towers * 25,
+            "one 5 x 5 body per tower"
+        );
         assert_eq!(kinds[G_PIN as usize], towers * 12, "twelve pins per tower");
-        assert_eq!(kinds[G_HOLE as usize], 4, "one mounting hole per board quarter");
+        assert_eq!(
+            kinds[G_HOLE as usize], 4,
+            "one mounting hole per board quarter"
+        );
     }
 
     // --- Acceptance 1: no two different nets may ever share copper. ---
@@ -2588,7 +2644,8 @@ mod tests {
                 // detour, and a cell of this net in between would be the crossing it avoids.
                 for c in between_cells(a, b) {
                     if plan.owners[flat(c.0, c.1)] == jump.net {
-                        malformed.push(format!("copper of the jumping net between {a:?} and {b:?}"));
+                        malformed
+                            .push(format!("copper of the jumping net between {a:?} and {b:?}"));
                     }
                 }
             }
@@ -2611,7 +2668,11 @@ mod tests {
     fn tower_packages_are_well_formed() {
         let f = generate(11);
         let pkgs = packages();
-        assert_eq!(pkgs.len(), TOWERS_PER_SIDE * TOWERS_PER_SIDE, "one package per tower");
+        assert_eq!(
+            pkgs.len(),
+            TOWERS_PER_SIDE * TOWERS_PER_SIDE,
+            "one package per tower"
+        );
 
         let mut body = 0usize;
         let mut pins = 0usize;
@@ -2656,11 +2717,23 @@ mod tests {
             // Pin-1 marker just outside the -x/-z corner.
             let (mx, mz) = step_to(cx, cz, -(PKG_HALF + 1), -(PKG_HALF + 1));
             assert_eq!(f.data[flat(mx, mz)][1], G_SILK, "missing pin-1 marker");
-            assert_eq!(f.data[flat(mx, mz)][0], 0, "pin-1 marker must stay clear of copper");
-            assert_eq!(f.data[flat(mx, mz)][3], A_SILK_PIN1, "pin-1 marker brightness");
+            assert_eq!(
+                f.data[flat(mx, mz)][0],
+                0,
+                "pin-1 marker must stay clear of copper"
+            );
+            assert_eq!(
+                f.data[flat(mx, mz)][3],
+                A_SILK_PIN1,
+                "pin-1 marker brightness"
+            );
         }
         assert_eq!(body, pkgs.len() * 25, "every package carries a 5 x 5 body");
-        assert_eq!(pins, pkgs.len() * 12, "every package carries exactly 12 pins");
+        assert_eq!(
+            pins,
+            pkgs.len() * 12,
+            "every package carries exactly 12 pins"
+        );
     }
 
     // --- Acceptance 2: every pin leaves its package outward, onto its port. ---
@@ -2741,7 +2814,10 @@ mod tests {
     /// Chebyshev distance between two towers in pitches, wrap-aware: the torus is eight
     /// towers per side, so this runs 0..=4.
     fn tower_pitch_distance(a: usize, b: usize) -> usize {
-        let pairs = [(a % TOWERS_PER_SIDE, b % TOWERS_PER_SIDE), (a / TOWERS_PER_SIDE, b / TOWERS_PER_SIDE)];
+        let pairs = [
+            (a % TOWERS_PER_SIDE, b % TOWERS_PER_SIDE),
+            (a / TOWERS_PER_SIDE, b / TOWERS_PER_SIDE),
+        ];
         let mut d = 0usize;
         for (x, y) in pairs {
             let raw = (x as i64 - y as i64).rem_euclid(TOWERS_PER_SIDE as i64) as usize;
@@ -2761,8 +2837,14 @@ mod tests {
         // cannot be routed. See [`plan_nets`].
         let mut used = std::collections::HashMap::new();
         for net in &plan.nets {
-            assert!(pin_dir(net.from.0, net.from.1).is_some(), "net end must be a pin");
-            assert!(pin_dir(net.to.0, net.to.1).is_some(), "net end must be a pin");
+            assert!(
+                pin_dir(net.from.0, net.from.1).is_some(),
+                "net end must be a pin"
+            );
+            assert!(
+                pin_dir(net.to.0, net.to.1).is_some(),
+                "net end must be a pin"
+            );
             *used.entry(net.from).or_insert(0usize) += 1;
             *used.entry(net.to).or_insert(0usize) += 1;
         }
@@ -2771,7 +2853,10 @@ mod tests {
             .flat_map(|p| p.pins.iter().map(|p| p.cell))
             .collect();
         for pin in &all_pins {
-            assert!(used.get(pin).copied().unwrap_or(0) <= 1, "pin {pin:?} is on two nets");
+            assert!(
+                used.get(pin).copied().unwrap_or(0) <= 1,
+                "pin {pin:?} is on two nets"
+            );
         }
         assert!(
             plan.nets.len() * 2 + plan.routing.stubs >= pins_total,
@@ -2819,7 +2904,10 @@ mod tests {
         let mut distance_hist = [0usize; 5];
         let mut non_adjacent = 0usize;
         for net in plan.nets.iter().filter(|n| n.len.is_some()) {
-            let d = tower_pitch_distance(tower_of(net.from.0, net.from.1), tower_of(net.to.0, net.to.1));
+            let d = tower_pitch_distance(
+                tower_of(net.from.0, net.from.1),
+                tower_of(net.to.0, net.to.1),
+            );
             distance_hist[d] += 1;
             if d >= 2 {
                 non_adjacent += 1;
@@ -2867,7 +2955,11 @@ mod tests {
             "median net is {} cells: no better than the nearest-neighbour hop it replaced",
             lengths[total / 2]
         );
-        assert!(lengths[0] <= 16, "the shortest net is {} cells: local hops have gone", lengths[0]);
+        assert!(
+            lengths[0] <= 16,
+            "the shortest net is {} cells: local hops have gone",
+            lengths[0]
+        );
         assert!(
             non_adjacent * 100 >= 20 * total,
             "only {non_adjacent} of {total} routed nets join towers that are not neighbours"
@@ -2918,8 +3010,7 @@ mod tests {
                         if bits & bit == 0 {
                             continue;
                         }
-                        let (mirror, dx, dz) =
-                            floor_dir_mirror(bit).expect("single direction bit");
+                        let (mirror, dx, dz) = floor_dir_mirror(bit).expect("single direction bit");
                         let (nx, nz) = step_to(x, z, dx, dz);
                         if f.data[flat(nx, nz)][0] & mirror == 0 {
                             violations += 1;
@@ -2952,8 +3043,14 @@ mod tests {
                 for off in -(LANE_HALF as i32)..=(LANE_HALF as i32) {
                     let (ax, az) = step_to(lane_x(m), s, off, 0);
                     let (bx, bz) = step_to(s, lane_z(m), 0, off);
-                    assert!(!in_package(ax, az), "x lane cell ({ax}, {az}) is in a package");
-                    assert!(!in_package(bx, bz), "z lane cell ({bx}, {bz}) is in a package");
+                    assert!(
+                        !in_package(ax, az),
+                        "x lane cell ({ax}, {az}) is in a package"
+                    );
+                    assert!(
+                        !in_package(bx, bz),
+                        "z lane cell ({bx}, {bz}) is in a package"
+                    );
                 }
                 let edge = (LANE_HALF + 1) as i32;
                 let (ex, ez) = step_to(lane_x(m), 0, edge, 0);
@@ -3199,6 +3296,9 @@ mod tests {
             pct_routable >= 20.0,
             "routable-area coverage {pct_routable:.1}% is too sparse for a bus layout"
         );
-        assert!(poured > 200, "the ground planes are missing: {poured} pour cells");
+        assert!(
+            poured > 200,
+            "the ground planes are missing: {poured} pour cells"
+        );
     }
 }

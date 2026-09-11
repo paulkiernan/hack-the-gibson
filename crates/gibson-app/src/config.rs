@@ -82,10 +82,10 @@ preview = false
 /// [`Settings::clamped`] normalizes anything out of range.
 pub fn load_or_create(path: &Path) -> Result<Settings, String> {
     ensure_file(path)?;
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let settings: Settings = toml::from_str(&text)
-        .map_err(|e| format!("invalid config {}: {e}", path.display()))?;
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let settings: Settings =
+        toml::from_str(&text).map_err(|e| format!("invalid config {}: {e}", path.display()))?;
     Ok(settings.clamped())
 }
 

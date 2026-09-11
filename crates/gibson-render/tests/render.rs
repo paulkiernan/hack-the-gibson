@@ -5,8 +5,8 @@
 //! prints a skip message (and passes) when no adapter/device is available, e.g. on CI runners
 //! without a GPU.
 
-use gibson_types::*;
 use gibson_render::{RenderError, Renderer};
+use gibson_types::*;
 use std::f32::consts::PI;
 
 fn settings() -> Settings {
@@ -31,24 +31,12 @@ fn floor() -> FloorMap {
 }
 
 /// Build a renderer offscreen; `None` (with a printed note) when the machine has no adapter.
-fn renderer_at(
-    width: u32,
-    height: u32,
-    scale: f32,
-    settings: &Settings,
-) -> Option<Renderer> {
+fn renderer_at(width: u32, height: u32, scale: f32, settings: &Settings) -> Option<Renderer> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let a = atlas();
     let f = floor();
     match pollster::block_on(Renderer::new(
-        &instance,
-        None,
-        width,
-        height,
-        scale,
-        &a,
-        &f,
-        settings,
+        &instance, None, width, height, scale, &a, &f, settings,
     )) {
         Ok(r) => Some(r),
         Err(RenderError::NoAdapter | RenderError::NoDevice(_)) => {
@@ -150,7 +138,8 @@ fn empty_frame_is_pure_black() {
     assert_eq!((w, h), (320, 240));
     assert_eq!(rgba.len(), 320 * 240 * 4);
     assert!(
-        rgba.chunks_exact(4).all(|px| px[0] == 0 && px[1] == 0 && px[2] == 0),
+        rgba.chunks_exact(4)
+            .all(|px| px[0] == 0 && px[1] == 0 && px[2] == 0),
         "empty frame must be pure black (all effects disabled)"
     );
     // Composite is opaque: alpha must be saturated.
@@ -250,7 +239,10 @@ fn highlight_block_lights_only_its_own_panel_block() {
                     let rx = block_rect(&a, p, x).unwrap();
                     let ry = block_rect(&a, p, y).unwrap();
                     // Well separated (>24 atlas px) so linear edge sampling cannot bridge them.
-                    let separated = rx.2 + 24 < ry.0 || ry.2 + 24 < rx.0 || rx.3 + 24 < ry.1 || ry.3 + 24 < rx.1;
+                    let separated = rx.2 + 24 < ry.0
+                        || ry.2 + 24 < rx.0
+                        || rx.3 + 24 < ry.1
+                        || ry.3 + 24 < rx.1;
                     let big_enough = rx.2 - rx.0 >= 8 && ry.2 - ry.0 >= 8;
                     if separated && big_enough {
                         break 'pick (p, x, y);
@@ -279,7 +271,11 @@ fn highlight_block_lights_only_its_own_panel_block() {
 
     let diff = |rgba_a: &[u8], rgba_b: &[u8]| -> Vec<(usize, usize)> {
         let mut out = Vec::new();
-        for (i, (pa, pb)) in rgba_a.chunks_exact(4).zip(rgba_b.chunks_exact(4)).enumerate() {
+        for (i, (pa, pb)) in rgba_a
+            .chunks_exact(4)
+            .zip(rgba_b.chunks_exact(4))
+            .enumerate()
+        {
             if (pa[0] as i32 - pb[0] as i32).abs() > 4
                 || (pa[1] as i32 - pb[1] as i32).abs() > 4
                 || (pa[2] as i32 - pb[2] as i32).abs() > 4
@@ -425,7 +421,10 @@ fn bloom_motion_grain_on_render_succeeds() {
     let pose2 = camera([0.0, 20.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]);
     let on_frame = empty_frame(1.0, pose2, &s, std::slice::from_ref(&tower), &[]);
     let (_, _, on) = r.render_to_rgba(&on_frame).expect("effects on");
-    assert!(luminance(&on) >= off_mean, "effects must not darken the frame");
+    assert!(
+        luminance(&on) >= off_mean,
+        "effects must not darken the frame"
+    );
 }
 
 /// Deterministic 0..1 hash over grid indices.
@@ -518,7 +517,11 @@ fn populated_frame() -> (Vec<TowerInstance>, Vec<PulseInstance>, CameraPose) {
             pulses.push(PulseInstance {
                 position: [x as f32, y, z],
                 length: len,
-                direction: if k % 2 == 0 { [1.0, 0.0, 0.0] } else { [-1.0, 0.0, 0.0] },
+                direction: if k % 2 == 0 {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [-1.0, 0.0, 0.0]
+                },
                 intensity: 0.85 + 0.15 * hash01(k, x),
                 color: beam_color(n),
                 _pad: 0.0,
@@ -657,7 +660,13 @@ fn crt_overlay_scales_with_amount() {
     };
     let mut render_at = |r: &mut Renderer, crt: f32| -> Vec<u8> {
         s.crt = crt;
-        let frame = empty_frame(1.0, pose, &s, std::slice::from_ref(&tower), std::slice::from_ref(&pulse));
+        let frame = empty_frame(
+            1.0,
+            pose,
+            &s,
+            std::slice::from_ref(&tower),
+            std::slice::from_ref(&pulse),
+        );
         let (_, _, px) = r.render_to_rgba(&frame).expect("crt render");
         px
     };
@@ -719,7 +728,11 @@ fn beam_color_reaches_the_screen() {
         }
     }
     assert!(n > 40, "green beam must produce lit pixels (found {n})");
-    let (mr, mg, mb) = (sr as f64 / n as f64, sg as f64 / n as f64, sb as f64 / n as f64);
+    let (mr, mg, mb) = (
+        sr as f64 / n as f64,
+        sg as f64 / n as f64,
+        sb as f64 / n as f64,
+    );
     assert!(
         mg > 2.0 * mr && mg > 2.0 * mb,
         "green beam pixels must be green-dominant (mean r {mr:.1} g {mg:.1} b {mb:.1})"
@@ -816,7 +829,10 @@ fn silhouette_box(
             }
         }
     }
-    assert!(x0 <= x1 && y0 <= y1, "no tower silhouette found in the search window");
+    assert!(
+        x0 <= x1 && y0 <= y1,
+        "no tower silhouette found in the search window"
+    );
     (x0, x1, y0, y1)
 }
 
@@ -825,13 +841,22 @@ fn silhouette_box(
 /// substrate or the sky next to the tower -- but the threshold has to sit just above true black:
 /// a tower's glass is dim enough at the top that anything higher would silently measure only the
 /// glyphs and the edge rim and call the result "the glass".
-fn rect_lum(rgba: &[u8], w: usize, x0: usize, x1: usize, y0: usize, y1: usize) -> (f64, f64, usize) {
+fn rect_lum(
+    rgba: &[u8],
+    w: usize,
+    x0: usize,
+    x1: usize,
+    y0: usize,
+    y1: usize,
+) -> (f64, f64, usize) {
     const LIT: f64 = 0.0015;
     let mut lum: Vec<f64> = Vec::new();
     for y in y0..y1 {
         for x in x0..x1 {
             let i = (y * w + x) * 4;
-            let l = (rgba[i] as f64 * 0.2126 + rgba[i + 1] as f64 * 0.7152 + rgba[i + 2] as f64 * 0.0722)
+            let l = (rgba[i] as f64 * 0.2126
+                + rgba[i + 1] as f64 * 0.7152
+                + rgba[i + 2] as f64 * 0.0722)
                 / 255.0;
             if l > LIT {
                 lum.push(l);
@@ -889,7 +914,8 @@ fn pixel_lum_linear(rgba: &[u8], i: usize) -> f64 {
 /// where the picture itself contributes nothing vertical.
 fn raster_strength(rgba: &[u8], w: usize, h: usize) -> f64 {
     let lum = |i: usize| {
-        (rgba[i] as f64 * 0.2126 + rgba[i + 1] as f64 * 0.7152 + rgba[i + 2] as f64 * 0.0722) / 255.0
+        (rgba[i] as f64 * 0.2126 + rgba[i + 1] as f64 * 0.7152 + rgba[i + 2] as f64 * 0.0722)
+            / 255.0
     };
     const BAND: usize = 32;
     let mut strengths: Vec<f64> = Vec::new();
@@ -1107,7 +1133,11 @@ fn tower_base_glows_and_is_more_opaque_than_the_top() {
     let without_tower = empty_frame(1.0, level, &s, &[], &[]);
     let (_, _, lit) = rb.render_to_rgba(&with_tower).expect("tower render");
     let (_, _, empty) = rb.render_to_rgba(&without_tower).expect("empty render");
-    assert_eq!(nonzero_count(&empty), 0, "the black floor map must draw nothing");
+    assert_eq!(
+        nonzero_count(&empty),
+        0,
+        "the black floor map must draw nothing"
+    );
     let box_ = silhouette_box(&lit, &empty, w, h, 200, 280);
     let (x0, x1, top_row, bottom_row) = box_;
     // Two pixels inside the face's vertical rim on each side: the rim is bright at every height
@@ -1147,10 +1177,18 @@ fn tower_base_glows_and_is_more_opaque_than_the_top() {
     // 45 degrees down from 120 units above and 120 behind: every ray in the frame lands on the
     // floor (the horizon is far outside it), so the whole silhouette has a backdrop, and the
     // floor behind it is close enough that fog leaves most of its brightness.
-    let down = camera([0.0, 120.0, 120.0], [0.0, -0.7071, -0.7071], [0.0, 0.7071, -0.7071]);
+    let down = camera(
+        [0.0, 120.0, 120.0],
+        [0.0, -0.7071, -0.7071],
+        [0.0, 0.7071, -0.7071],
+    );
     let render_plane = |r: &mut Renderer, towers: &[TowerInstance]| -> Vec<u8> {
         let mut pal = Palette::NORMAL;
-        pal.floor_trace = [pal.floor_trace[0] * 2.0, pal.floor_trace[1] * 2.0, pal.floor_trace[2] * 2.0];
+        pal.floor_trace = [
+            pal.floor_trace[0] * 2.0,
+            pal.floor_trace[1] * 2.0,
+            pal.floor_trace[2] * 2.0,
+        ];
         let mut frame = empty_frame(1.0, down, &s, towers, &[]);
         frame.palette = pal;
         r.render_to_rgba(&frame).expect("plane render").2
@@ -1182,7 +1220,9 @@ fn tower_base_glows_and_is_more_opaque_than_the_top() {
     // shader's alpha.
     let occ_base = occluded(base.0, base.1);
     let occ_top = occluded(top.0, top.1);
-    eprintln!("tower height: backdrop hidden base {occ_base:.3}, top {occ_top:.3} (0 = clear glass)");
+    eprintln!(
+        "tower height: backdrop hidden base {occ_base:.3}, top {occ_top:.3} (0 = clear glass)"
+    );
     assert!(
         occ_base > 0.08 && occ_top > 0.0,
         "both bands must hide a real fraction of the backdrop (base {occ_base:.3}, top {occ_top:.3})"
@@ -1255,7 +1295,10 @@ fn floor_reserved_feature_kinds_draw_nothing() {
         let frame = empty_frame(1.0, pose, &s, &[], &[]);
         let (_, _, px) = r.render_to_rgba(&frame).expect("reserved-kind render");
         let lit = nonzero_count(&px);
-        assert_eq!(lit, 0, "G = {g} is reserved and must draw nothing ({lit} lit)");
+        assert_eq!(
+            lit, 0,
+            "G = {g} is reserved and must draw nothing ({lit} lit)"
+        );
     }
     // Controls: known kinds on the same tile do light up.
     for (g, label) in [(6u8, "copper pour"), (7, "silkscreen"), (0, "traces")] {
@@ -1327,12 +1370,20 @@ fn orthogonal_run_floor(gauge: u8) -> FloorMap {
 /// horizontal axis (`right` = the diagonal, `up` = the anti-diagonal).
 fn diagonal_camera() -> CameraPose {
     let r = 1.0 / 2.0f32.sqrt();
-    camera([RUN_MID, RUN_CAM_H, RUN_MID], [0.0, -1.0, 0.0], [r, 0.0, -r])
+    camera(
+        [RUN_MID, RUN_CAM_H, RUN_MID],
+        [0.0, -1.0, 0.0],
+        [r, 0.0, -r],
+    )
 }
 
 /// Top-down with the screen axes on the world axes, so a +x run is horizontal in the image.
 fn orthogonal_camera() -> CameraPose {
-    camera([RUN_MID, RUN_CAM_H, RUN_MID], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0])
+    camera(
+        [RUN_MID, RUN_CAM_H, RUN_MID],
+        [0.0, -1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    )
 }
 
 /// Luma of one pixel.
@@ -1374,7 +1425,11 @@ fn band_stats(widths: &[f64], skip: usize) -> (f64, f64, f64) {
     let window = &widths[first + skip..=last - skip];
     let mut sorted = window.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    (sorted[0], sorted[sorted.len() / 2], sorted[sorted.len() - 1])
+    (
+        sorted[0],
+        sorted[sorted.len() / 2],
+        sorted[sorted.len() - 1],
+    )
 }
 
 /// The conductor's width at the image centre for a top-down 800x800 frame, in pixels: the frame
@@ -1409,10 +1464,11 @@ fn floor_diagonal_runs_are_continuous() {
     let s = settings();
     let scale = run_scale_px();
     for (gauge, hw) in GAUGES {
-        let (min, med, max, span) = match measure_run(&diagonal_run_floor(gauge), &s, diagonal_camera()) {
-            Some(m) => m,
-            None => return,
-        };
+        let (min, med, max, span) =
+            match measure_run(&diagonal_run_floor(gauge), &s, diagonal_camera()) {
+                Some(m) => m,
+                None => return,
+            };
         let (_, straight, _, straight_span) =
             match measure_run(&orthogonal_run_floor(gauge), &s, orthogonal_camera()) {
                 Some(m) => m,
@@ -1465,10 +1521,11 @@ fn floor_orthogonal_runs_are_unchanged() {
     let s = settings();
     let scale = run_scale_px();
     for (gauge, hw) in GAUGES {
-        let (min, med, max, span) = match measure_run(&orthogonal_run_floor(gauge), &s, orthogonal_camera()) {
-            Some(m) => m,
-            None => return,
-        };
+        let (min, med, max, span) =
+            match measure_run(&orthogonal_run_floor(gauge), &s, orthogonal_camera()) {
+                Some(m) => m,
+                None => return,
+            };
         let expected = 2.0 * hw * scale;
         eprintln!(
             "orthogonal gauge {gauge}: span {span} min {min:.2} median {med:.2} max {max:.2} px \
@@ -1583,12 +1640,14 @@ fn probe_frame_profile() {
     // to enable profiling without both, so a silent "profiling disabled" needs an explanation).
     {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        if let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-            apply_limit_buckets: false,
-        })) {
+        if let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+                apply_limit_buckets: false,
+            }))
+        {
             let f = adapter.features();
             println!(
                 "timestamp features: query={} inside_encoders={} inside_passes={}",
@@ -1769,10 +1828,7 @@ fn probe_siege_wave() {
     for t in towers.iter_mut() {
         let d = ((t.position[0] - eye.0).powi(2) + (t.position[2] - eye.1).powi(2)).sqrt();
         let front = (d - 60.0) / 70.0;
-        let jitter = hash01(
-            (t.position[0] / 30.0) as i32,
-            (t.position[2] / 30.0) as i32,
-        ) - 0.5;
+        let jitter = hash01((t.position[0] / 30.0) as i32, (t.position[2] / 30.0) as i32) - 0.5;
         t.siege_t = (front + jitter * 0.6).clamp(0.0, 1.0);
     }
     let frame = empty_frame(1.5, pose, &s, &towers, &pulses);
@@ -1808,14 +1864,42 @@ fn probe_floor_features() {
         let (lx, lz) = (x % 4, z % 4);
         match (bx, bz) {
             // Orthogonal run with a 90-degree corner.
-            (0, 0) => [if lz == 2 { 3 } else if lz == 3 { 0 } else { 0 }, 0, 0, 255],
+            (0, 0) => [
+                if lz == 2 {
+                    3
+                } else if lz == 3 {
+                    0
+                } else {
+                    0
+                },
+                0,
+                0,
+                255,
+            ],
             // Diagonal run: a 45-degree jog cornering into an orthogonal run.
-            (1, 0) => [if lz == 0 && lx == 0 { 16 } else if lz == 3 { 0 } else { 5 }, 0, 0, 255],
+            (1, 0) => [
+                if lz == 0 && lx == 0 {
+                    16
+                } else if lz == 3 {
+                    0
+                } else {
+                    5
+                },
+                0,
+                0,
+                255,
+            ],
             // Gauge: thin, medium and thick runs side by side.
             (2, 0) => [1, 0, ((lz as u8) & 3).min(2), 255],
             // Through-hole pads (G=1) and vias (G=2) on a signal run.
             (3, 0) => {
-                let g = if lx == 2 && lz == 2 { 1 } else if lz == 2 { 2 } else { 0 };
+                let g = if lx == 2 && lz == 2 {
+                    1
+                } else if lz == 2 {
+                    2
+                } else {
+                    0
+                };
                 [if lz == 2 { 1 } else { 0 }, g, 0, 255]
             }
             // SMD pads (G=4) tiling a chip footprint.
@@ -1824,13 +1908,33 @@ fn probe_floor_features() {
             (1, 1) => {
                 let body = (1..3).contains(&lx) && (1..3).contains(&lz);
                 let pin = !body && (lx == 0 || lz == 0);
-                [0, if body { 3 } else if pin { 5 } else { 0 }, 0, 255]
+                [
+                    0,
+                    if body {
+                        3
+                    } else if pin {
+                        5
+                    } else {
+                        0
+                    },
+                    0,
+                    255,
+                ]
             }
             // Solid pour (G=6) and hatched pour (B bit 3).
             (2, 1) => [0, 6, 0, 255],
             (3, 1) => [0, 6, 8, 255],
             // Silkscreen (G=7) outline, and a mounting hole (G=8) ringed by power traces.
-            (0, 2) => [0, if lx == 0 || lz == 0 || lx == 3 || lz == 3 { 7 } else { 0 }, 0, 255],
+            (0, 2) => [
+                0,
+                if lx == 0 || lz == 0 || lx == 3 || lz == 3 {
+                    7
+                } else {
+                    0
+                },
+                0,
+                255,
+            ],
             (1, 2) => {
                 let g = if lx == 2 && lz == 2 { 8 } else { 0 };
                 [if lx == 2 || lz == 2 { 2 } else { 0 }, g, 2, 255]
@@ -1840,7 +1944,18 @@ fn probe_floor_features() {
             // A trace landing on a pad, and a mixed corner.
             (3, 2) => {
                 let g = if lx == 2 && lz == 2 { 1 } else { 0 };
-                [if lz == 2 { 3 } else if lx == 2 { 8 } else { 0 }, g, 0, 255]
+                [
+                    if lz == 2 {
+                        3
+                    } else if lx == 2 {
+                        8
+                    } else {
+                        0
+                    },
+                    g,
+                    0,
+                    255,
+                ]
             }
             // Routed mesh everywhere else: through-routing with diagonal jogs, so the board reads
             // as a board between the feature blocks instead of as isolated shapes on black.

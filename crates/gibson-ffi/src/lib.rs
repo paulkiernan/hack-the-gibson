@@ -123,7 +123,8 @@ impl log::Log for OsLogSink {
             log::Level::Info => oslog::Level::Info,
             log::Level::Debug | log::Level::Trace => oslog::Level::Debug,
         };
-        self.log.with_level(level, &format!("[{}] {}", record.target(), record.args()));
+        self.log
+            .with_level(level, &format!("[{}] {}", record.target(), record.args()));
     }
     fn flush(&self) {}
 }
@@ -237,7 +238,6 @@ fn acquire_slot(handle: *mut c_void, context: &str) -> Result<BusyGuard, i32> {
     Ok(BusyGuard(raw))
 }
 
-
 // ---------------------------------------------------------------------------
 // Entry points
 // ---------------------------------------------------------------------------
@@ -246,19 +246,29 @@ fn acquire_slot(handle: *mut c_void, context: &str) -> Result<BusyGuard, i32> {
 /// [`Settings`]. Invalid or missing JSON falls back to defaults, logged.
 fn parse_settings(settings_json: *const c_char) -> Settings {
     let json = if settings_json.is_null() {
-        report_info("gibson_create", "settings_json is null; using default settings");
+        report_info(
+            "gibson_create",
+            "settings_json is null; using default settings",
+        );
         None
     } else {
         // SAFETY: the Swift side promises a null-terminated C string (or null,
         // handled above) that stays valid for the call.
-        Some(unsafe { CStr::from_ptr(settings_json) }.to_string_lossy().into_owned())
+        Some(
+            unsafe { CStr::from_ptr(settings_json) }
+                .to_string_lossy()
+                .into_owned(),
+        )
     };
     match json {
         None => Settings::default(),
         Some(text) => match serde_json::from_str::<Settings>(&text) {
             Ok(settings) => settings,
             Err(e) => {
-                report_warn("gibson_create", &format!("invalid settings json ({e}); using default settings"));
+                report_warn(
+                    "gibson_create",
+                    &format!("invalid settings json ({e}); using default settings"),
+                );
                 Settings::default()
             }
         },
@@ -319,9 +329,9 @@ fn create_inner(
         raw_display_handle: Some(wgpu::rwh::RawDisplayHandle::AppKit(
             wgpu::rwh::AppKitDisplayHandle::new(),
         )),
-        raw_window_handle: wgpu::rwh::RawWindowHandle::AppKit(
-            wgpu::rwh::AppKitWindowHandle::new(ns_view),
-        ),
+        raw_window_handle: wgpu::rwh::RawWindowHandle::AppKit(wgpu::rwh::AppKitWindowHandle::new(
+            ns_view,
+        )),
     };
 
     match pollster::block_on(Gibson::new(
@@ -339,7 +349,10 @@ fn create_inner(
             });
             let raw = Box::into_raw(slot);
             slots_lock().push(raw);
-            report_info("gibson_create", &format!("ok: {width}x{height} (logical) scale {scale}"));
+            report_info(
+                "gibson_create",
+                &format!("ok: {width}x{height} (logical) scale {scale}"),
+            );
             raw.cast::<c_void>()
         }
         Err(e) => {
@@ -358,7 +371,9 @@ fn create_inner(
 #[no_mangle]
 pub extern "C" fn gibson_resize(handle: *mut c_void, width: u32, height: u32, scale: f32) {
     install_os_logger();
-    let _ = catch_unwind(AssertUnwindSafe(|| resize_inner(handle, width, height, scale)));
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        resize_inner(handle, width, height, scale)
+    }));
 }
 
 fn resize_inner(handle: *mut c_void, width: u32, height: u32, scale: f32) {
@@ -424,7 +439,9 @@ pub extern "C" fn gibson_present_stats(
     skipped: *mut u64,
 ) -> i32 {
     install_os_logger();
-    match catch_unwind(AssertUnwindSafe(|| present_stats_inner(handle, presented, skipped))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        present_stats_inner(handle, presented, skipped)
+    })) {
         Ok(code) => code,
         Err(payload) => {
             report_panic("gibson_present_stats", &*payload);
@@ -469,7 +486,9 @@ pub extern "C" fn gibson_skip_breakdown(
     occluded: *mut u64,
 ) -> i32 {
     install_os_logger();
-    match catch_unwind(AssertUnwindSafe(|| skip_breakdown_inner(handle, timeout, occluded))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        skip_breakdown_inner(handle, timeout, occluded)
+    })) {
         Ok(code) => code,
         Err(payload) => {
             report_panic("gibson_skip_breakdown", &*payload);
@@ -525,7 +544,10 @@ fn destroy_inner(handle: *mut c_void) {
     {
         let mut live = slots_lock();
         let Some(pos) = live.iter().position(|p| *p == raw) else {
-            report_error("gibson_destroy", "unknown or already-destroyed handle (no-op)");
+            report_error(
+                "gibson_destroy",
+                "unknown or already-destroyed handle (no-op)",
+            );
             return;
         };
         // SAFETY: the slot is registered in `live`, which we hold exclusively.
@@ -534,7 +556,10 @@ fn destroy_inner(handle: *mut c_void) {
             // A frame/resize is in flight on this slot (host lifecycle bug;
             // all calls must be main-thread and non-reentrant). Refuse rather
             // than free memory mid-use; the slot stays registered.
-            report_error("gibson_destroy", "destroy refused while a call is in flight (no-op)");
+            report_error(
+                "gibson_destroy",
+                "destroy refused while a call is in flight (no-op)",
+            );
             return;
         }
         live.swap_remove(pos);

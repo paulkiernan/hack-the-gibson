@@ -176,7 +176,11 @@ mod tests {
         for &seed in &SEEDS {
             let a = generate(seed);
             for (p, ids) in a.blocks_per_panel.iter().enumerate() {
-                assert!(ids.len() >= 6, "seed {seed} panel {p}: only {} blocks", ids.len());
+                assert!(
+                    ids.len() >= 6,
+                    "seed {seed} panel {p}: only {} blocks",
+                    ids.len()
+                );
                 assert!(
                     ids.windows(2).all(|w| w[0] < w[1]),
                     "seed {seed} panel {p} ids not ascending: {ids:?}"
@@ -228,16 +232,30 @@ mod tests {
                 let mut prev: i32 = -1;
                 for y in b.y0..b.y1 {
                     let i = (y as usize * layout::PW + mid as usize) * 4;
-                    assert_eq!(lay[i + 3], 255, "panel {p} block {}: A not 255 inside", b.id);
+                    assert_eq!(
+                        lay[i + 3],
+                        255,
+                        "panel {p} block {}: A not 255 inside",
+                        b.id
+                    );
                     assert_eq!(lay[i + 2], b.id, "panel {p}: B != block id inside");
                     let g = lay[i + 1] as i32;
-                    assert!(g >= prev, "panel {p} block {}: G decreased at row {y}", b.id);
+                    assert!(
+                        g >= prev,
+                        "panel {p} block {}: G decreased at row {y}",
+                        b.id
+                    );
                     prev = g;
                 }
                 let top_i = (b.y0 as usize * layout::PW + mid as usize) * 4;
                 assert_eq!(lay[top_i + 1], 0, "panel {p} block {}: top G != 0", b.id);
                 let bot_i = ((b.y1 - 1) as usize * layout::PW + mid as usize) * 4;
-                assert_eq!(lay[bot_i + 1], 255, "panel {p} block {}: bottom G != 255", b.id);
+                assert_eq!(
+                    lay[bot_i + 1],
+                    255,
+                    "panel {p} block {}: bottom G != 255",
+                    b.id
+                );
             }
             // Outside every block: A = 0 and B = 0.
             let mut inside = vec![false; (ATLAS_WIDTH * ATLAS_HEIGHT) as usize];
@@ -251,8 +269,16 @@ mod tests {
             for (idx, &inb) in inside.iter().enumerate() {
                 if !inb {
                     let i = idx * 4;
-                    assert_eq!(lay[i + 2], 0, "panel {p}: B nonzero outside blocks at {idx}");
-                    assert_eq!(lay[i + 3], 0, "panel {p}: A nonzero outside blocks at {idx}");
+                    assert_eq!(
+                        lay[i + 2],
+                        0,
+                        "panel {p}: B nonzero outside blocks at {idx}"
+                    );
+                    assert_eq!(
+                        lay[i + 3],
+                        0,
+                        "panel {p}: A nonzero outside blocks at {idx}"
+                    );
                 }
             }
         }

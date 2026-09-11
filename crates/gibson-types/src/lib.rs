@@ -125,7 +125,12 @@ impl Settings {
             bank_max_degrees: clamp_or_default(self.bank_max_degrees, 0.0, 60.0, 32.0),
             bank_smoothing: clamp_or_default(self.bank_smoothing, 0.05, 2.0, 0.55),
             palette: self.palette,
-            palette_cycle_seconds: clamp_or_default(self.palette_cycle_seconds, 10.0, 3600.0, 240.0),
+            palette_cycle_seconds: clamp_or_default(
+                self.palette_cycle_seconds,
+                10.0,
+                3600.0,
+                240.0,
+            ),
             bloom: clamp_or_default(self.bloom, 0.0, 2.0, 0.35),
             motion_blur: clamp_or_default(self.motion_blur, 0.0, 1.0, 0.5),
             grain: clamp_or_default(self.grain, 0.0, 0.2, 0.03),
@@ -411,14 +416,14 @@ pub struct FloorMap {
 /// and the mirror bit lives in the neighbour cell, which is always the mirror's own opposite
 /// direction, so the offsets negate.
 pub const FLOOR_DIR_MIRRORS: [(u8, i32, i32); 8] = [
-    (2, 1, 0),     // 1   +x   <- neighbour's 2   -x
-    (1, -1, 0),    // 2   -x   <- neighbour's 1   +x
-    (8, 0, 1),     // 4   +z   <- neighbour's 8   -z
-    (4, 0, -1),    // 8   -z   <- neighbour's 4   +z
-    (128, 1, 1),   // 16  +x+z <- neighbour's 128 -x-z
-    (64, -1, 1),   // 32  -x+z <- neighbour's 64  +x-z
-    (32, 1, -1),   // 64  +x-z <- neighbour's 32  -x+z
-    (16, -1, -1),  // 128 -x-z <- neighbour's 16  +x+z
+    (2, 1, 0),    // 1   +x   <- neighbour's 2   -x
+    (1, -1, 0),   // 2   -x   <- neighbour's 1   +x
+    (8, 0, 1),    // 4   +z   <- neighbour's 8   -z
+    (4, 0, -1),   // 8   -z   <- neighbour's 4   +z
+    (128, 1, 1),  // 16  +x+z <- neighbour's 128 -x-z
+    (64, -1, 1),  // 32  -x+z <- neighbour's 64  +x-z
+    (32, 1, -1),  // 64  +x-z <- neighbour's 32  -x+z
+    (16, -1, -1), // 128 -x-z <- neighbour's 16  +x+z
 ];
 
 /// Mirror bit and neighbour-cell offset for one direction half-segment `bit` (a single-bit
@@ -689,6 +694,9 @@ mod tests {
         // PaletteMode lowercase round trip.
         let p: PaletteMode = serde_json::from_str("\"siege\"").unwrap();
         assert_eq!(p, PaletteMode::Siege);
-        assert_eq!(serde_json::to_string(&PaletteMode::Cycle).unwrap(), "\"cycle\"");
+        assert_eq!(
+            serde_json::to_string(&PaletteMode::Cycle).unwrap(),
+            "\"cycle\""
+        );
     }
 }

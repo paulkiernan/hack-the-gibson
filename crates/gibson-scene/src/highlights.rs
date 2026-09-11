@@ -5,7 +5,7 @@
 
 use gibson_types::CameraPose;
 use glam::Vec3;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use crate::city::{City, Visible};
 

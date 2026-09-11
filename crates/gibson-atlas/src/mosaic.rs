@@ -24,29 +24,28 @@
 //! The text face runs at `MONO_PX` on an 8 px pitch (see [`layout::MONO_PITCH`]): line spacing
 //! is tight and rows fill their full width, matching the film's very dense, fine text.
 
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 
 use crate::layout::{self, Block, MONO_PITCH};
 use crate::text::{Advance, GlyphCache, MONO, MONO_ADV, MONO_PX};
 
 /// Mosaic content keywords (film-adjacent status/CPU vocabulary).
 const KEYWORDS: [&str; 22] = [
-    "STATUS", "ERROR", "OVERRIDE", "DUMPSEG", "IDLEPRO", "REPORT", "CONFIG", "QUE", "INIT",
-    "LOAD", "SEC7", "CHK7", "NULL", "BASIC", "OUT", "MOV", "NOP", "JMP", "LD", "ACK", "SYN",
-    "RST",
+    "STATUS", "ERROR", "OVERRIDE", "DUMPSEG", "IDLEPRO", "REPORT", "CONFIG", "QUE", "INIT", "LOAD",
+    "SEC7", "CHK7", "NULL", "BASIC", "OUT", "MOV", "NOP", "JMP", "LD", "ACK", "SYN", "RST",
 ];
 
 /// CPU opcode vocabulary for opcode columns.
 const OPS: [&str; 16] = [
-    "MOV", "NOP", "JMP", "LD", "ST", "OUT", "ADD", "SUB", "AND", "OR", "XOR", "SHL", "CALL",
-    "RET", "PUSH", "POP",
+    "MOV", "NOP", "JMP", "LD", "ST", "OUT", "ADD", "SUB", "AND", "OR", "XOR", "SHL", "CALL", "RET",
+    "PUSH", "POP",
 ];
 
 /// A few file-ish names occasionally used as mini headers on text blocks.
 const HEADERS: [&str; 10] = [
-    "SYS.LOG", "CORE.DMP", "MAIN.CFG", "SEC.LST", "IDLE.PRO", "NET.STAT", "MEM.MAP",
-    "USR.DIR", "IO.PORT", "ROM.DMP",
+    "SYS.LOG", "CORE.DMP", "MAIN.CFG", "SEC.LST", "IDLE.PRO", "NET.STAT", "MEM.MAP", "USR.DIR",
+    "IO.PORT", "ROM.DMP",
 ];
 
 const HEXU: [char; 16] = [
@@ -89,7 +88,11 @@ pub fn geometry(rng: &mut StdRng) -> Vec<Block> {
     let col_gap = rng.random_range(8..=10);
     let mut cols: Vec<(i32, i32)> = Vec::with_capacity(3); // (x0, width)
     if rng.random_range(0..100) < 50 {
-        let narrow = if rng.random_range(0..100) < 55 { 64 } else { 96 };
+        let narrow = if rng.random_range(0..100) < 55 {
+            64
+        } else {
+            96
+        };
         let wide = inner_w - col_gap - narrow;
         if rng.random_range(0..100) < 50 {
             cols.push((x0, narrow));
@@ -114,7 +117,8 @@ pub fn geometry(rng: &mut StdRng) -> Vec<Block> {
     // Full-width anchor bands, top to bottom, each leaving >= MIN_BOTTOM_SPAN below it. They are
     // pushed first so blocks[0] is always the top anchor (the renderer forces it to an
     // inverse-video slab).
-    let n_anchor = 1 + i32::from(rng.random_range(0..100) < 40) + i32::from(rng.random_range(0..100) < 7);
+    let n_anchor =
+        1 + i32::from(rng.random_range(0..100) < 40) + i32::from(rng.random_range(0..100) < 7);
     let mut ay = y0 + rng.random_range(20..=64);
     for _ in 0..n_anchor {
         let lines = rng.random_range(4..=10);
@@ -122,7 +126,11 @@ pub fn geometry(rng: &mut StdRng) -> Vec<Block> {
         if ay + h + MIN_BOTTOM_SPAN > y1 {
             break;
         }
-        let w = if rng.random_range(0..100) < 25 { 236 } else { 244 };
+        let w = if rng.random_range(0..100) < 25 {
+            236
+        } else {
+            244
+        };
         layout::push_block(&mut anchors, &mut id, x0, ay, w as u32, h as u32);
         ay += h + rng.random_range(28..=64);
     }
@@ -144,8 +152,9 @@ pub fn geometry(rng: &mut StdRng) -> Vec<Block> {
         for (si, &(sa, sb)) in spans.iter().enumerate() {
             // Tall narrow guarantee: the first narrow track's bottom-most span opens with one
             // segment of >= TALL_MIN_LINES rows.
-            let force_tall =
-                si + 1 == n_spans && first_narrow == Some(ci) && sb - sa >= TALL_MIN_LINES * MONO_PITCH;
+            let force_tall = si + 1 == n_spans
+                && first_narrow == Some(ci)
+                && sb - sa >= TALL_MIN_LINES * MONO_PITCH;
             fill_span(rng, &mut out, &mut id, cx, cw, sa, sb, force_tall);
         }
     }
@@ -167,7 +176,11 @@ fn fill_span(
 ) {
     // Leave a small dark pocket before the next anchor/panel edge; the guaranteed tall segment
     // must not be shortened, so its span stays flush.
-    let end = if force_tall { sb } else { sb - rng.random_range(0..=14) };
+    let end = if force_tall {
+        sb
+    } else {
+        sb - rng.random_range(0..=14)
+    };
     let mut y = sa;
     let mut first = true;
     while end - y >= MIN_LINES * MONO_PITCH {
@@ -282,7 +295,11 @@ fn binary_row(rng: &mut StdRng, cols: usize) -> String {
         let c = if r < 6 {
             ' '
         } else if r < 86 {
-            if rng.random_range(0..2) == 0 { '0' } else { '1' }
+            if rng.random_range(0..2) == 0 {
+                '0'
+            } else {
+                '1'
+            }
         } else if r < 93 {
             'o'
         } else {
@@ -345,8 +362,18 @@ fn draw_rows<F>(
         }
         let baseline = (b.y0 + (r as i32) * MONO_PITCH) as f32 + asc;
         glyphs.draw_row(
-            layer, MONO, MONO_PX, &s, x0, baseline, Advance::Grid(MONO_ADV), b.x0, b.y0, b.x1,
-            b.y1, inverse,
+            layer,
+            MONO,
+            MONO_PX,
+            &s,
+            x0,
+            baseline,
+            Advance::Grid(MONO_ADV),
+            b.x0,
+            b.y0,
+            b.x1,
+            b.y1,
+            inverse,
         );
     }
 }
@@ -377,7 +404,13 @@ fn draw_slab(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8], b: &Bl
 
 /// Framed pane: 1 px ring, one bright keyword header row, and a body split into small
 /// sub-columns by thin vertical dividers — the film's framed boxes grouping smaller sub-blocks.
-fn draw_framed_pane(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8], b: &Block, asc: f32) {
+fn draw_framed_pane(
+    rng: &mut StdRng,
+    glyphs: &mut GlyphCache,
+    layer: &mut [u8],
+    b: &Block,
+    asc: f32,
+) {
     layout::ring_r(layer, b);
     let lines = b.lines();
     if lines == 0 {
@@ -403,8 +436,18 @@ fn draw_framed_pane(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8],
     header.truncate(cols);
     let baseline = b.y0 as f32 + asc;
     glyphs.draw_row(
-        layer, MONO, MONO_PX, &header, x0, baseline, Advance::Grid(MONO_ADV), b.x0, b.y0, b.x1,
-        b.y1, false,
+        layer,
+        MONO,
+        MONO_PX,
+        &header,
+        x0,
+        baseline,
+        Advance::Grid(MONO_ADV),
+        b.x0,
+        b.y0,
+        b.x1,
+        b.y1,
+        false,
     );
     if lines < 2 {
         return;
@@ -458,8 +501,18 @@ fn draw_framed_pane(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8],
                 }
             }
             glyphs.draw_row(
-                layer, MONO, MONO_PX, &s, sx, row_base, Advance::Grid(MONO_ADV), sx0, b.y0, sx1,
-                b.y1, j == inv_style,
+                layer,
+                MONO,
+                MONO_PX,
+                &s,
+                sx,
+                row_base,
+                Advance::Grid(MONO_ADV),
+                sx0,
+                b.y0,
+                sx1,
+                b.y1,
+                j == inv_style,
             );
             if j + 1 < nsub && sx1 < b.x1 - 1 {
                 // Thin vertical divider between sub-columns.
@@ -493,7 +546,17 @@ fn draw_rule(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8], b: &Bl
     s.truncate(cols);
     let baseline = b.y0 as f32 + asc;
     glyphs.draw_row(
-        layer, MONO, MONO_PX, &s, x0, baseline, Advance::Grid(MONO_ADV), b.x0, b.y0, b.x1, b.y1,
+        layer,
+        MONO,
+        MONO_PX,
+        &s,
+        x0,
+        baseline,
+        Advance::Grid(MONO_ADV),
+        b.x0,
+        b.y0,
+        b.x1,
+        b.y1,
         false,
     );
     rule_between_rows(layer, b, 1, 255);
@@ -502,7 +565,13 @@ fn draw_rule(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8], b: &Bl
 /// Plain dense text rows. Occasionally the block opens with a mini header (file-name style)
 /// row, and longer blocks sometimes carry a bright rule mid-way (the film's thin horizontal
 /// separators inside text).
-fn draw_text_block(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8], b: &Block, asc: f32) {
+fn draw_text_block(
+    rng: &mut StdRng,
+    glyphs: &mut GlyphCache,
+    layer: &mut [u8],
+    b: &Block,
+    asc: f32,
+) {
     let lines = b.lines();
     let has_header = lines >= 4 && rng.random_range(0..100) < 16;
     let (cols, x0) = cols_of(b);
@@ -515,8 +584,18 @@ fn draw_text_block(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8], 
         s.truncate(cols);
         let baseline = b.y0 as f32 + asc;
         glyphs.draw_row(
-            layer, MONO, MONO_PX, &s, x0, baseline, Advance::Grid(MONO_ADV), b.x0, b.y0, b.x1,
-            b.y1, false,
+            layer,
+            MONO,
+            MONO_PX,
+            &s,
+            x0,
+            baseline,
+            Advance::Grid(MONO_ADV),
+            b.x0,
+            b.y0,
+            b.x1,
+            b.y1,
+            false,
         );
     }
     for r in (if has_header { 1 } else { 0 })..lines {
@@ -537,8 +616,18 @@ fn draw_text_block(rng: &mut StdRng, glyphs: &mut GlyphCache, layer: &mut [u8], 
         }
         let baseline = (b.y0 + (r as i32) * MONO_PITCH) as f32 + asc;
         glyphs.draw_row(
-            layer, MONO, MONO_PX, &s, x0, baseline, Advance::Grid(MONO_ADV), b.x0, b.y0, b.x1,
-            b.y1, false,
+            layer,
+            MONO,
+            MONO_PX,
+            &s,
+            x0,
+            baseline,
+            Advance::Grid(MONO_ADV),
+            b.x0,
+            b.y0,
+            b.x1,
+            b.y1,
+            false,
         );
     }
     // Occasional mid-block bright rule in a gutter between rows (never on top of glyphs). These

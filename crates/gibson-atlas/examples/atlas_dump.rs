@@ -102,8 +102,7 @@ fn main() {
         min_cov * 100.0
     );
 
-    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/scratch/atlas");
+    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/scratch/atlas");
     fs::create_dir_all(&out_dir).expect("create docs/scratch/atlas");
 
     let layers: Vec<u32> = if args.is_empty() {

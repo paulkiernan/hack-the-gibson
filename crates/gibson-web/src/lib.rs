@@ -25,7 +25,8 @@ use web_sys::{Document, Element, HtmlCanvasElement, Node, UrlSearchParams, Windo
 
 /// Best-effort string for a JS error, for log lines.
 fn js_err(e: JsValue) -> String {
-    e.as_string().unwrap_or_else(|| "unknown JS error".to_string())
+    e.as_string()
+        .unwrap_or_else(|| "unknown JS error".to_string())
 }
 
 /// Canvas backing store is capped at this many physical pixels per CSS pixel; above it the
@@ -145,11 +146,20 @@ async fn run() -> Result<(), String> {
     // Logical (CSS) size goes to `Gibson`; the renderer derives the physical render size from
     // it via `scale`. The canvas backing store is set to that same physical size.
     let (width, height, scale) = layout(&window, &canvas, settings.render_scale);
-    log::info!("gibson-web: viewport {width}x{height} css px, scale {scale} (render_scale {})", settings.render_scale);
+    log::info!(
+        "gibson-web: viewport {width}x{height} css px, scale {scale} (render_scale {})",
+        settings.render_scale
+    );
     let target = wgpu::SurfaceTarget::Canvas(canvas.clone());
-    let gibson = Gibson::new(SurfaceTarget::Window(target), width, height, scale, settings)
-        .await
-        .map_err(|e| startup_message(&e))?;
+    let gibson = Gibson::new(
+        SurfaceTarget::Window(target),
+        width,
+        height,
+        scale,
+        settings,
+    )
+    .await
+    .map_err(|e| startup_message(&e))?;
 
     clear_status();
     log::info!("gibson-web: running on {}", backend_name(&window));
@@ -345,7 +355,9 @@ fn parse_u64(params: &UrlSearchParams, key: &str, slot: &mut u64) {
 }
 
 fn parse_palette(params: &UrlSearchParams, slot: &mut PaletteMode) {
-    let Some(raw) = params.get("palette") else { return };
+    let Some(raw) = params.get("palette") else {
+        return;
+    };
     match raw.trim().to_ascii_lowercase().as_str() {
         "normal" => *slot = PaletteMode::Normal,
         "siege" => *slot = PaletteMode::Siege,

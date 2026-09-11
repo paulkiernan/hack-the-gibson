@@ -6,7 +6,7 @@
 
 use crate::shaders;
 use crate::targets::HDR_FORMAT;
-use crate::util::{FS_VERTEX_LAYOUT, fs_triangle};
+use crate::util::{fs_triangle, FS_VERTEX_LAYOUT};
 use std::collections::HashMap;
 
 pub struct Post {
@@ -112,7 +112,8 @@ impl Post {
             ],
         });
 
-        let motion_layout = crate::util::pipeline_layout(device, "gibson-motion-layout", &motion_bgl);
+        let motion_layout =
+            crate::util::pipeline_layout(device, "gibson-motion-layout", &motion_bgl);
         let composite_layout =
             crate::util::pipeline_layout(device, "gibson-composite-layout", &composite_bgl);
 
@@ -152,7 +153,11 @@ impl Post {
     }
 
     /// The render pipeline for a given final output format (cached).
-    pub fn composite_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
+    pub fn composite_pipeline(
+        &mut self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+    ) -> &wgpu::RenderPipeline {
         if !self.composites.contains_key(&format) {
             let layout = crate::util::pipeline_layout(
                 device,
@@ -182,10 +187,8 @@ impl Post {
         format: wgpu::TextureFormat,
     ) -> &wgpu::RenderPipeline {
         if !self.crts.contains_key(&format) {
-            let layout =
-                crate::util::pipeline_layout(device, "gibson-crt-layout", &self.crt_bgl);
-            let pipeline =
-                make_pipeline(device, &layout, "gibson-crt", shaders::CRT, format);
+            let layout = crate::util::pipeline_layout(device, "gibson-crt-layout", &self.crt_bgl);
+            let pipeline = make_pipeline(device, &layout, "gibson-crt", shaders::CRT, format);
             self.crts.insert(format, pipeline);
         }
         &self.crts[&format]

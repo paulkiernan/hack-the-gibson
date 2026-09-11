@@ -1,11 +1,9 @@
 //! The tower city: deterministic per-tower generation (face panels, top layer, animation phase)
 //! plus per-frame frustum and fog culling with a back-to-front distance sort.
 
-use gibson_types::{
-    CameraPose, FOG_END, TOWER_HEIGHT, TOWER_HEIGHT_MIN, TOWER_WIDTH,
-};
+use gibson_types::{CameraPose, FOG_END, TOWER_HEIGHT, TOWER_HEIGHT_MIN, TOWER_WIDTH};
 use glam::Vec3;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use crate::FlightPath;
 
@@ -150,7 +148,8 @@ impl City {
                     }
                     let cx = nci as f32 * 30.0 + 15.0;
                     let cz = nrj as f32 * 30.0;
-                    if (p[0] - cx).abs() <= CAP_FOOTPRINT_HALF && (p[2] - cz).abs() <= CAP_FOOTPRINT_HALF
+                    if (p[0] - cx).abs() <= CAP_FOOTPRINT_HALF
+                        && (p[2] - cz).abs() <= CAP_FOOTPRINT_HALF
                     {
                         let idx = ((nci + self.half) as usize) * (self.grid as usize)
                             + ((nrj + self.half) as usize);

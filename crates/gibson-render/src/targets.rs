@@ -59,7 +59,8 @@ impl SceneTargets {
         height: u32,
         signal: bool,
     ) -> Result<SceneTargets, RenderError> {
-        let color_usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+        let color_usage =
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
         let mk = |label: &str| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),

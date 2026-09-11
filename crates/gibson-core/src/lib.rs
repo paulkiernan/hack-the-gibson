@@ -83,7 +83,9 @@ fn effective_scale(on_screen: bool, width: u32, height: u32, scale: f32) -> f32 
     }
     let w_phys = (width.max(1) as f32) * scale;
     let h_phys = (height.max(1) as f32) * scale;
-    let auto = (gibson_types::MAX_ON_SCREEN_PIXELS / (w_phys * h_phys)).sqrt().min(1.0);
+    let auto = (gibson_types::MAX_ON_SCREEN_PIXELS / (w_phys * h_phys))
+        .sqrt()
+        .min(1.0);
     scale * auto
 }
 
@@ -133,12 +135,23 @@ impl Gibson {
         scene.set_block_ids(atlas.blocks_per_panel.clone());
 
         let renderer_scale = effective_scale(on_screen, width, height, scale);
-        log::info!("gibson-core: render target {}x{} (scale {renderer_scale:.3})",
+        log::info!(
+            "gibson-core: render target {}x{} (scale {renderer_scale:.3})",
             ((width as f32) * renderer_scale).round().max(1.0) as u32,
-            ((height as f32) * renderer_scale).round().max(1.0) as u32);
-        let renderer = Renderer::new(&instance, surface, width, height, renderer_scale, &atlas, &floor, &settings)
-            .await
-            .map_err(GibsonError::Render)?;
+            ((height as f32) * renderer_scale).round().max(1.0) as u32
+        );
+        let renderer = Renderer::new(
+            &instance,
+            surface,
+            width,
+            height,
+            renderer_scale,
+            &atlas,
+            &floor,
+            &settings,
+        )
+        .await
+        .map_err(GibsonError::Render)?;
 
         Ok(Gibson {
             scene,
@@ -157,9 +170,11 @@ impl Gibson {
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) {
         let renderer_scale = effective_scale(self.on_screen, width, height, scale);
         if renderer_scale != self.last_scale {
-            log::info!("gibson-core: render target {}x{} (scale {renderer_scale:.3})",
+            log::info!(
+                "gibson-core: render target {}x{} (scale {renderer_scale:.3})",
                 ((width as f32) * renderer_scale).round().max(1.0) as u32,
-                ((height as f32) * renderer_scale).round().max(1.0) as u32);
+                ((height as f32) * renderer_scale).round().max(1.0) as u32
+            );
             self.last_scale = renderer_scale;
         }
         self.renderer.resize(width, height, renderer_scale);
@@ -181,7 +196,9 @@ impl Gibson {
         let t = self.relative_time(time_seconds);
         self.scene.update(t, &self.settings);
         let frame = self.scene.frame(&self.settings);
-        self.renderer.render_to_rgba(&frame).map_err(GibsonError::Render)
+        self.renderer
+            .render_to_rgba(&frame)
+            .map_err(GibsonError::Render)
     }
 
     /// Current (clamped) settings.
@@ -283,7 +300,10 @@ mod tests {
     #[test]
     fn render_scale_multiplies_on_top_of_the_cap() {
         let auto = effective_scale(true, 1280, 800, 2.0);
-        assert!((1280.0 * auto - 1280.0 * 2.0 * 0.827).abs() < 6.0, "auto {auto}");
+        assert!(
+            (1280.0 * auto - 1280.0 * 2.0 * 0.827).abs() < 6.0,
+            "auto {auto}"
+        );
         let (w, h) = (1280.0 * auto, 800.0 * auto);
         let px = w * h;
         assert!(
@@ -299,7 +319,10 @@ mod tests {
     /// when the machine has no usable GPU adapter.
     #[test]
     fn offscreen_snapshot_keeps_the_requested_size() {
-        let settings = Settings { seed: 7, ..Settings::default() };
+        let settings = Settings {
+            seed: 7,
+            ..Settings::default()
+        };
         let gibson = pollster::block_on(Gibson::new(
             SurfaceTarget::Offscreen,
             2940,
@@ -316,7 +339,11 @@ mod tests {
             Err(e) => panic!("offscreen renderer creation failed: {e}"),
         };
         let (w, h, rgba) = gibson.snapshot(0.0).expect("offscreen snapshot");
-        assert_eq!((w, h), (2940, 1912), "offscreen snapshot must keep the requested size");
+        assert_eq!(
+            (w, h),
+            (2940, 1912),
+            "offscreen snapshot must keep the requested size"
+        );
         assert_eq!(rgba.len(), 2940 * 1912 * 4);
     }
 }

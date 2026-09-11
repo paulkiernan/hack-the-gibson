@@ -90,7 +90,12 @@ impl FrameUniform {
             view_proj: view_proj.to_cols_array(),
             prev_view_proj: prev_view_proj.to_cols_array(),
             inv_view_proj: view_proj.inverse().to_cols_array(),
-            camera_pos: [frame.camera.position[0], frame.camera.position[1], frame.camera.position[2], 1.0],
+            camera_pos: [
+                frame.camera.position[0],
+                frame.camera.position[1],
+                frame.camera.position[2],
+                1.0,
+            ],
             tower_body_normal: palette.tower_body,
             tower_text_normal: col4(palette.tower_text),
             highlight_normal: col4(palette.highlight),

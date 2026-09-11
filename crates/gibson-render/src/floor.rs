@@ -11,8 +11,7 @@ struct FloorVertex {
     xz: [f32; 2],
 }
 
-const CORNER_ATTRS: [wgpu::VertexAttribute; 1] =
-    wgpu::vertex_attr_array![0 => Float32x2];
+const CORNER_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x2];
 
 fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
     wgpu::VertexBufferLayout {

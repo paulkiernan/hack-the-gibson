@@ -98,9 +98,27 @@ impl Bloom {
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
-        let prefilter = make_pipeline(device, &layout, "gibson-bloom-prefilter", shaders::BLOOM_PREFILTER, None);
-        let down = make_pipeline(device, &layout, "gibson-bloom-down", shaders::BLOOM_DOWN, None);
-        let up = make_pipeline(device, &layout, "gibson-bloom-up", shaders::BLOOM_UP, Some(additive_blend()));
+        let prefilter = make_pipeline(
+            device,
+            &layout,
+            "gibson-bloom-prefilter",
+            shaders::BLOOM_PREFILTER,
+            None,
+        );
+        let down = make_pipeline(
+            device,
+            &layout,
+            "gibson-bloom-down",
+            shaders::BLOOM_DOWN,
+            None,
+        );
+        let up = make_pipeline(
+            device,
+            &layout,
+            "gibson-bloom-up",
+            shaders::BLOOM_UP,
+            Some(additive_blend()),
+        );
         Bloom {
             bgl,
             prefilter,
@@ -151,7 +169,9 @@ impl Bloom {
         }
         let mut input_bgs = Vec::with_capacity(LEVELS);
         for lvl in &levels {
-            input_bgs.push(make_input_bg(device, &self.bgl, uniform, &lvl.view, sampler));
+            input_bgs.push(make_input_bg(
+                device, &self.bgl, uniform, &lvl.view, sampler,
+            ));
         }
         let prefilter_bg = make_input_bg(device, &self.bgl, uniform, src_view, sampler);
         self.levels = levels;

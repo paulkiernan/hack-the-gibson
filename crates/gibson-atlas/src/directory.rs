@@ -5,12 +5,12 @@
 //! a filled right-pointing triangle. Below the list sits one small hex-dump block. Variant B keeps
 //! the same rectangles but re-samples the entry names.
 
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 
 use crate::layout::{self, Block};
-use crate::text::{Advance, GlyphCache, MICHROMA, MONO, MONO_ADV, MONO_PX};
 use crate::mosaic;
+use crate::text::{Advance, GlyphCache, MICHROMA, MONO, MONO_ADV, MONO_PX};
 
 /// The film's on-screen directory names (keeping the production's misspelling "FORCASTS").
 const NAMES: [&str; 28] = [
@@ -63,12 +63,30 @@ pub fn geometry(rng: &mut StdRng) -> Vec<Block> {
     let mut out = Vec::with_capacity(n as usize + 1);
     let mut id: u8 = 1;
     for r in 0..n {
-        layout::push_block(&mut out, &mut id, layout::MARGIN, top + r * ROW_H, ROW_W, ROW_H as u32);
+        layout::push_block(
+            &mut out,
+            &mut id,
+            layout::MARGIN,
+            top + r * ROW_H,
+            ROW_W,
+            ROW_H as u32,
+        );
     }
     let h_lines = rng.random_range(4..=6);
-    let hw: u32 = if rng.random_range(0..100) < 50 { 96 } else { 128 };
+    let hw: u32 = if rng.random_range(0..100) < 50 {
+        96
+    } else {
+        128
+    };
     let gy = top + n * ROW_H + rng.random_range(10..=22);
-    layout::push_block(&mut out, &mut id, layout::MARGIN, gy, hw, (h_lines * layout::MONO_PITCH) as u32);
+    layout::push_block(
+        &mut out,
+        &mut id,
+        layout::MARGIN,
+        gy,
+        hw,
+        (h_lines * layout::MONO_PITCH) as u32,
+    );
     out
 }
 

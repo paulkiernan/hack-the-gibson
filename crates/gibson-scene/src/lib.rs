@@ -2,9 +2,7 @@
 //! and the siege spread. [`Scene`] advances the whole sim with [`Scene::update`] and exposes the
 //! per-frame render slice with [`Scene::frame`].
 
-use gibson_types::{
-    CameraPose, FrameData, Palette, PulseInstance, Settings, TowerInstance,
-};
+use gibson_types::{CameraPose, FrameData, Palette, PulseInstance, Settings, TowerInstance};
 
 mod camera;
 mod city;
@@ -134,7 +132,8 @@ impl Scene {
         self.city.cull(&pose, &mut self.visible);
 
         // 4. Highlights: expire finished sweeps, pick new ones from the visible set.
-        self.highlights.update(time, &pose, &self.city, &self.visible);
+        self.highlights
+            .update(time, &pose, &self.city, &self.visible);
 
         // 5. Compose the tower instances (highlight envelope and siege blend applied to visible
         //    towers only; both are keyed to the tower's grid index, so culling cannot lose them).
@@ -159,7 +158,8 @@ impl Scene {
         // 6. Animate the lane pulses and compose their instances.
         self.pulses.advance(dt);
         self.pulse_buf.clear();
-        self.pulses.write_instances(&self.pulse_palette, &mut self.pulse_buf);
+        self.pulses
+            .write_instances(&self.pulse_palette, &mut self.pulse_buf);
     }
 
     /// Current camera pose.
@@ -279,7 +279,10 @@ mod tests {
         }
         // Just before the seam the curve is within a whisker of the start point (C1 wrap).
         let c = path.position(39.0 - 1e-3);
-        let d: f32 = (0..3).map(|k| (c[k] - a[k]) * (c[k] - a[k])).sum::<f32>().sqrt();
+        let d: f32 = (0..3)
+            .map(|k| (c[k] - a[k]) * (c[k] - a[k]))
+            .sum::<f32>()
+            .sqrt();
         assert!(d < 0.2, "near-seam gap {d} exceeds 0.2 units");
     }
 
@@ -328,7 +331,8 @@ mod tests {
             let mut min_d = f32::INFINITY;
             for nci in (ncol - 1)..=(ncol + 1) {
                 for nrj in (nrow - 1)..=(nrow + 1) {
-                    if !(-half..grid - half).contains(&nci) || !(-half..grid - half).contains(&nrj) {
+                    if !(-half..grid - half).contains(&nci) || !(-half..grid - half).contains(&nrj)
+                    {
                         continue;
                     }
                     let idx = ((nci + half) as usize) * (grid as usize) + ((nrj + half) as usize);
@@ -564,7 +568,9 @@ mod tests {
 
         // Early: the wave is about a third of the way across the city.
         let early = SIEGE_DELAY + 0.35 * span as f64;
-        let wave = scene.siege.wave(settings.palette, early, settings.palette_cycle_seconds);
+        let wave = scene
+            .siege
+            .wave(settings.palette, early, settings.palette_cycle_seconds);
         let mut red = 0usize;
         let mut normal = 0usize;
         for idx in 0..n {
@@ -584,7 +590,11 @@ mod tests {
         // The instances the scene actually emits carry the same split.
         scene.update(early, &settings);
         let frame = scene.frame(&settings);
-        assert_eq!(frame.palette, Palette::NORMAL, "Siege must hand over the normal palette");
+        assert_eq!(
+            frame.palette,
+            Palette::NORMAL,
+            "Siege must hand over the normal palette"
+        );
         assert!(
             frame.towers.iter().any(|t| t.siege_t > 0.99),
             "no red tower among the {} visible at t={early:.1}",
@@ -614,9 +624,14 @@ mod tests {
                 );
             }
         }
-        let wave = scene.siege.wave(settings.palette, 3600.0, settings.palette_cycle_seconds);
+        let wave = scene
+            .siege
+            .wave(settings.palette, 3600.0, settings.palette_cycle_seconds);
         for idx in 0..n {
-            assert!(scene.siege.siege_t(idx, wave) >= 0.999, "tower {idx} not siege at t=3600");
+            assert!(
+                scene.siege.siege_t(idx, wave) >= 0.999,
+                "tower {idx} not siege at t=3600"
+            );
         }
     }
 
@@ -646,29 +661,72 @@ mod tests {
             assert_eq!(progress(&scene, t, period), 0.0, "cycle 0 moved at t={t}");
         }
         // Cycle 1 sweeps in over the first 15 % of the period, then holds at full siege.
-        assert_eq!(progress(&scene, p, period), 0.0, "siege cycle did not start from normal");
+        assert_eq!(
+            progress(&scene, p, period),
+            0.0,
+            "siege cycle did not start from normal"
+        );
         let half_way = progress(&scene, p + 0.5 * edge, period);
-        assert!((0.4..=0.6).contains(&half_way), "mid-sweep progress {half_way}");
-        assert_eq!(progress(&scene, p + edge, period), 1.0, "sweep did not complete");
+        assert!(
+            (0.4..=0.6).contains(&half_way),
+            "mid-sweep progress {half_way}"
+        );
+        assert_eq!(
+            progress(&scene, p + edge, period),
+            1.0,
+            "sweep did not complete"
+        );
         assert_eq!(progress(&scene, 1.5 * p, period), 1.0, "siege did not hold");
-        assert_eq!(progress(&scene, 2.0 * p, period), 1.0, "siege dropped at the boundary");
+        assert_eq!(
+            progress(&scene, 2.0 * p, period),
+            1.0,
+            "siege dropped at the boundary"
+        );
         // Cycle 2 sweeps back out, then holds normal; cycle 3 sieges again, cycle 4 recedes.
         let receding = progress(&scene, 2.0 * p + 0.5 * edge, period);
-        assert!((0.4..=0.6).contains(&receding), "mid-recede progress {receding}");
-        assert_eq!(progress(&scene, 2.0 * p + edge, period), 0.0, "siege did not clear");
+        assert!(
+            (0.4..=0.6).contains(&receding),
+            "mid-recede progress {receding}"
+        );
+        assert_eq!(
+            progress(&scene, 2.0 * p + edge, period),
+            0.0,
+            "siege did not clear"
+        );
         for t in [2.5 * p, 3.0 * p - 1e-3] {
             assert_eq!(progress(&scene, t, period), 0.0, "siege returned at t={t}");
         }
-        assert_eq!(progress(&scene, 3.0 * p + edge, period), 1.0, "second siege did not complete");
-        assert_eq!(progress(&scene, 4.0 * p + edge, period), 0.0, "second recede did not clear");
+        assert_eq!(
+            progress(&scene, 3.0 * p + edge, period),
+            1.0,
+            "second siege did not complete"
+        );
+        assert_eq!(
+            progress(&scene, 4.0 * p + edge, period),
+            0.0,
+            "second recede did not clear"
+        );
 
         // The emitted towers follow the same timeline, and the frame palette never leaves the
         // normal end of the blend.
         let mut scene = scene;
-        for t in [0.0, p, p + 0.5 * edge, p + edge, 1.5 * p, 2.0 * p, 2.0 * p + edge, 3.0 * p] {
+        for t in [
+            0.0,
+            p,
+            p + 0.5 * edge,
+            p + edge,
+            1.5 * p,
+            2.0 * p,
+            2.0 * p + edge,
+            3.0 * p,
+        ] {
             scene.update(t, &settings);
             let frame = scene.frame(&settings);
-            assert_eq!(frame.palette, Palette::NORMAL, "Cycle palette left NORMAL at t={t}");
+            assert_eq!(
+                frame.palette,
+                Palette::NORMAL,
+                "Cycle palette left NORMAL at t={t}"
+            );
             let cleared = progress(&scene, t, period) == 0.0;
             let full = progress(&scene, t, period) >= 1.0;
             for tower in frame.towers {
@@ -676,7 +734,10 @@ mod tests {
                     assert_eq!(tower.siege_t, 0.0, "tower still sieged at t={t}");
                 }
                 if full {
-                    assert!(tower.siege_t >= 0.999, "tower not siege during the hold at t={t}");
+                    assert!(
+                        tower.siege_t >= 0.999,
+                        "tower not siege during the hold at t={t}"
+                    );
                 }
             }
         }
@@ -704,10 +765,14 @@ mod tests {
             a.update(t, &settings);
             b.update(t, &settings);
             let (wa, wb) = (
-                a.siege.wave(settings.palette, t, settings.palette_cycle_seconds),
-                b.siege.wave(settings.palette, t, settings.palette_cycle_seconds),
+                a.siege
+                    .wave(settings.palette, t, settings.palette_cycle_seconds),
+                b.siege
+                    .wave(settings.palette, t, settings.palette_cycle_seconds),
             );
-            let wc = other.siege.wave(settings.palette, t, settings.palette_cycle_seconds);
+            let wc = other
+                .siege
+                .wave(settings.palette, t, settings.palette_cycle_seconds);
             for idx in 0..n {
                 let sa = a.siege.siege_t(idx, wa);
                 assert_eq!(sa, b.siege.siege_t(idx, wb), "tower {idx} differs at t={t}");
@@ -716,12 +781,19 @@ mod tests {
                 }
             }
             let (fa, fb) = (a.frame(&settings), b.frame(&settings));
-            assert_eq!(fa.towers.len(), fb.towers.len(), "visible set differs at t={t}");
+            assert_eq!(
+                fa.towers.len(),
+                fb.towers.len(),
+                "visible set differs at t={t}"
+            );
             for (ta, tb) in fa.towers.iter().zip(fb.towers) {
                 assert!(tower_eq(ta, tb), "emitted tower differs at t={t}");
             }
         }
-        assert!(differing > 0, "a different seed produced the identical siege spread");
+        assert!(
+            differing > 0,
+            "a different seed produced the identical siege spread"
+        );
     }
 
     /// A settings grid change rebuilds the wave with the city: a stale onset table would index
@@ -748,7 +820,9 @@ mod tests {
         // The wave carried through the rebuilds equals a fresh grid-60 scene's (same seed).
         let fresh = Scene::new(&settings, 3);
         assert_eq!(scene.siege.span(), fresh.siege.span());
-        let wave = scene.siege.wave(PaletteMode::Siege, 10.0, settings.palette_cycle_seconds);
+        let wave = scene
+            .siege
+            .wave(PaletteMode::Siege, 10.0, settings.palette_cycle_seconds);
         for idx in 0..(settings.grid * settings.grid) {
             assert_eq!(
                 scene.siege.siege_t(idx, wave),

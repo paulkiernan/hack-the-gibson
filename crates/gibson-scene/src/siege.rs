@@ -23,7 +23,7 @@
 //! neighbours is nudged away at build time so no two adjacent towers can ever share an onset.
 
 use gibson_types::PaletteMode;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use crate::city::City;
 
@@ -340,7 +340,11 @@ mod tests {
 
         for idx in 0..3600u32 {
             assert_eq!(at(0.0, idx), 0.0, "tower {idx} infected at progress 0");
-            assert_eq!(at(1.0, idx), 1.0, "tower {idx} not fully siege at progress 1");
+            assert_eq!(
+                at(1.0, idx),
+                1.0,
+                "tower {idx} not fully siege at progress 1"
+            );
             let mut prev = 0.0f32;
             for step in 1..=100 {
                 let s = at(step as f32 / 100.0, idx);

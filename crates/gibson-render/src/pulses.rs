@@ -13,8 +13,7 @@ struct PulseVertex {
     across: f32,
 }
 
-const QUAD_ATTRS: [wgpu::VertexAttribute; 2] =
-    wgpu::vertex_attr_array![0 => Float32, 1 => Float32];
+const QUAD_ATTRS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32, 1 => Float32];
 // Explicit offsets: PulseInstance is 48 bytes packed position(0) length(12) direction(16)
 // intensity(28) color(32) _pad(44, unread).
 const PULSE_ATTRS: [wgpu::VertexAttribute; 5] = [

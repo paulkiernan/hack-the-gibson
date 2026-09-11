@@ -216,7 +216,17 @@ mod tests {
 
     #[test]
     fn size_parsing_rejects_invalid_sizes() {
-        for bad in ["abc", "1920", "x1080", "1920x", "a x b", "0x0", "1920x1080x32", "", "-5x10"] {
+        for bad in [
+            "abc",
+            "1920",
+            "x1080",
+            "1920x",
+            "a x b",
+            "0x0",
+            "1920x1080x32",
+            "",
+            "-5x10",
+        ] {
             assert!(parse_size(bad).is_err(), "expected {bad:?} to be rejected");
         }
     }
@@ -312,7 +322,14 @@ mod tests {
         // Config default path is the real user dir; point at a temp file so the
         // test never touches the user's config.
         let path = temp_config("");
-        let cli = parse(&["--config", path.to_str().unwrap(), "--speed", "50", "--grid", "100000"]);
+        let cli = parse(&[
+            "--config",
+            path.to_str().unwrap(),
+            "--speed",
+            "50",
+            "--grid",
+            "100000",
+        ]);
         let settings = resolve(&cli).expect("resolve");
         assert_eq!(settings.fly_speed, 3.0);
         assert_eq!(settings.grid, 120);

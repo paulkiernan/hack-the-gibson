@@ -17,7 +17,7 @@
 //! current palette instead of freezing an old color.
 
 use gibson_types::{Palette, PulseInstance};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 /// Stable salt separating the pulse pool's RNG stream from the other subsystems.
 const PULSE_SALT: u64 = 0x3C6E_F372_FE94_F82B;
@@ -56,7 +56,7 @@ const LENGTH_MAX: f32 = 90.0;
 const HUE_0_WEIGHT: f32 = 0.50;
 const HUE_1_WEIGHT: f32 = 0.75; // cumulative: 50 % + 25 %
 const HUE_2_WEIGHT: f32 = 0.90; // cumulative: 75 % + 15 %
-// The remaining 10 % (r >= 0.90) land on hue index 3.
+                                // The remaining 10 % (r >= 0.90) land on hue index 3.
 
 /// Mutable pulse state; the renderer sees the derived `PulseInstance`.
 struct Pulse {
@@ -164,7 +164,11 @@ impl PulsePool {
                 self.rng.random_range(LOW_Y_MIN..LOW_Y_MAX)
             },
             speed,
-            dir: if self.rng.random::<f32>() < 0.5 { 1.0 } else { -1.0 },
+            dir: if self.rng.random::<f32>() < 0.5 {
+                1.0
+            } else {
+                -1.0
+            },
             length: (speed * LENGTH_PER_SPEED).clamp(LENGTH_MIN, LENGTH_MAX),
             intensity: self.rng.random_range(0.7..1.0),
             hue: self.pick_hue(),
@@ -275,12 +279,26 @@ mod tests {
         let high_frac = high as f32 / n as f32;
         assert!(zip_frac >= 0.08, "zip presence too low: {zip_frac}");
         assert!(zip_frac <= 0.35, "zip presence too high: {zip_frac}");
-        assert!((0.15..=0.45).contains(&high_frac), "high-beam fraction {high_frac}");
+        assert!(
+            (0.15..=0.45).contains(&high_frac),
+            "high-beam fraction {high_frac}"
+        );
         let distinct = hue_count.iter().filter(|&&c| c > 0).count();
-        assert!(distinct >= 3, "expected at least 3 hues, saw {distinct}: {hue_count:?}");
+        assert!(
+            distinct >= 3,
+            "expected at least 3 hues, saw {distinct}: {hue_count:?}"
+        );
         // Sanity on the weights: white-cyan (index 0) stays the plurality.
-        let top = hue_count.iter().enumerate().max_by_key(|(_, &c)| c).unwrap().0;
-        assert_eq!(top, 0, "index 0 should be the most common hue: {hue_count:?}");
+        let top = hue_count
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, &c)| c)
+            .unwrap()
+            .0;
+        assert_eq!(
+            top, 0,
+            "index 0 should be the most common hue: {hue_count:?}"
+        );
     }
 
     #[test]

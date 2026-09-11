@@ -84,7 +84,9 @@ impl App {
     fn draw(&mut self, event_loop: &ActiveEventLoop) {
         // Compute the extent first (borrows all of self), then take the
         // disjoint field borrows it needs to render.
-        let Some(window) = self.window.as_ref() else { return };
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
         let Some(start) = self.start else { return };
         if window.inner_size().width == 0 || window.inner_size().height == 0 {
             // Minimized / not yet laid out: skip the frame and wait for the window to come
@@ -94,7 +96,9 @@ impl App {
             return;
         }
         let (w, h, scale) = self.render_extent(window);
-        let Some(gibson) = self.gibson.as_mut() else { return };
+        let Some(gibson) = self.gibson.as_mut() else {
+            return;
+        };
         let extent = (w, h, scale.to_bits());
         if self.last_extent != Some(extent) {
             gibson.resize(w, h, scale);
@@ -165,13 +169,7 @@ impl ApplicationHandler for App {
         };
         let (w, h, scale) = self.render_extent(&window);
         let target = SurfaceTarget::Window(window.clone().into());
-        match pollster::block_on(Gibson::new(
-            target,
-            w,
-            h,
-            scale,
-            self.settings.clone(),
-        )) {
+        match pollster::block_on(Gibson::new(target, w, h, scale, self.settings.clone())) {
             Ok(gibson) => self.gibson = Some(gibson),
             Err(e) => {
                 self.fatal = Some(format!("cannot initialize renderer: {e}"));

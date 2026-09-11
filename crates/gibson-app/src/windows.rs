@@ -31,8 +31,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetCursorPos,
     IsWindow, PeekMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow, ShowCursor,
     ShowWindow, TranslateMessage, MSG, PM_REMOVE, SW_SHOW, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_SYSKEYDOWN,
-    WM_XBUTTONDOWN, WM_MOUSEWHEEL, WS_POPUP, WS_VISIBLE, WNDCLASSW,
+    WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
+    WM_SYSKEYDOWN, WM_XBUTTONDOWN, WNDCLASSW, WS_POPUP, WS_VISIBLE,
 };
 
 use crate::config;
@@ -238,7 +238,11 @@ fn run_fullscreen(settings: Settings) -> Result<(), String> {
             )
         };
         if hwnd.is_null() {
-            log::error!("cannot create a screensaver window for ({}, {})", rc.left, rc.top);
+            log::error!(
+                "cannot create a screensaver window for ({}, {})",
+                rc.left,
+                rc.top
+            );
             continue;
         }
         unsafe {
@@ -322,7 +326,12 @@ fn pump_messages() {
     }
 }
 
-unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     match msg {
         // Any key, mouse button, or wheel ends the screensaver.
         WM_KEYDOWN | WM_SYSKEYDOWN | WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN
@@ -372,7 +381,12 @@ fn raw_surface(hwnd: HWND) -> Result<wgpu::SurfaceTargetUnsafe, String> {
     }
 }
 
-fn create_gibson(hwnd: HWND, width: u32, height: u32, settings: &Settings) -> Result<Gibson, String> {
+fn create_gibson(
+    hwnd: HWND,
+    width: u32,
+    height: u32,
+    settings: &Settings,
+) -> Result<Gibson, String> {
     let target = raw_surface(hwnd)?;
     pollster::block_on(Gibson::new(
         SurfaceTarget::Raw(target),

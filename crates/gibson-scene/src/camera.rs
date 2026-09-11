@@ -103,8 +103,8 @@ impl CameraRig {
         // Yaw estimate from tangent directions `TANGENT_EPS` apart (legacy updateAtTime).
         let tp = Vec3::from_array(path.position(self.s - TANGENT_EPS))
             - Vec3::from_array(path.position(self.s - 2.0 * TANGENT_EPS));
-        let tn =
-            Vec3::from_array(path.position(self.s + TANGENT_EPS)) - Vec3::from_array(path.position(self.s));
+        let tn = Vec3::from_array(path.position(self.s + TANGENT_EPS))
+            - Vec3::from_array(path.position(self.s));
         let a = safe_norm(tp, forward);
         let b = safe_norm(tn, forward);
         let mut signed_yaw = a.cross(b).dot(Vec3::Y);

@@ -92,7 +92,10 @@ fn main() {
             }
         }
     }
-    println!("seed {seed}: {n}x{n} toroidal tile ({} cells)", cells as usize);
+    println!(
+        "seed {seed}: {n}x{n} toroidal tile ({} cells)",
+        cells as usize
+    );
     println!(
         "copper: {traced} cells ({:.1}%), of which {diagonal} carry a 45-degree half-segment \
          ({:.1}% of copper)",
@@ -121,7 +124,11 @@ fn main() {
             } else {
                 String::new()
             };
-            format!("{name} {} ({:.1}%){extra}", kinds[i], 100.0 * kinds[i] as f64 / cells)
+            format!(
+                "{name} {} ({:.1}%){extra}",
+                kinds[i],
+                100.0 * kinds[i] as f64 / cells
+            )
         })
         .collect();
     println!("{}", summary.join(", "));

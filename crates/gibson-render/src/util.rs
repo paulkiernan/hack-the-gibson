@@ -3,7 +3,12 @@
 use wgpu::util::DeviceExt;
 
 /// Create a GPU buffer from CPU bytes (mapped-at-creation so no queue is needed).
-pub fn buffer_init(device: &wgpu::Device, label: &str, contents: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+pub fn buffer_init(
+    device: &wgpu::Device,
+    label: &str,
+    contents: &[u8],
+    usage: wgpu::BufferUsages,
+) -> wgpu::Buffer {
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some(label),
         contents,
@@ -12,7 +17,11 @@ pub fn buffer_init(device: &wgpu::Device, label: &str, contents: &[u8], usage: w
 }
 
 /// Build the pipeline layout for a single bind-group pipeline.
-pub fn pipeline_layout(device: &wgpu::Device, label: &str, group: &wgpu::BindGroupLayout) -> wgpu::PipelineLayout {
+pub fn pipeline_layout(
+    device: &wgpu::Device,
+    label: &str,
+    group: &wgpu::BindGroupLayout,
+) -> wgpu::PipelineLayout {
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
         bind_group_layouts: &[Some(group)],

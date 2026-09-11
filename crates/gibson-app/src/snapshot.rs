@@ -62,7 +62,10 @@ pub fn run(cli: &Cli) -> Result<(), String> {
     // 8-bit alpha plane (~25% of the file on this content). Best compression with adaptive
     // per-row filtering buys the rest; the deterministic pixel stream keeps two runs of the
     // same arguments byte-identical.
-    let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|px| [px[0], px[1], px[2]]).collect();
+    let rgb: Vec<u8> = rgba
+        .chunks_exact(4)
+        .flat_map(|px| [px[0], px[1], px[2]])
+        .collect();
     let file = File::create(&out_path)
         .map_err(|e| format!("cannot create {}: {e}", out_path.display()))?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), w, h);

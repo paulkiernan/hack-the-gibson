@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 
 use gibson_core::{Gibson, SurfaceTarget};
 use x11_dl::xlib::{
-    XConfigureEvent, XDestroyWindowEvent, XErrorEvent, XEvent, XWindowAttributes, Xlib,
-    ConfigureNotify, DestroyNotify, StructureNotifyMask,
+    ConfigureNotify, DestroyNotify, StructureNotifyMask, XConfigureEvent, XDestroyWindowEvent,
+    XErrorEvent, XEvent, XWindowAttributes, Xlib,
 };
 
 use crate::cli::{self, Cli};
@@ -37,7 +37,8 @@ fn parse_xid(s: &str) -> Result<u64, String> {
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         u64::from_str_radix(hex, 16).map_err(|_| format!("invalid window id {s:?}"))
     } else {
-        s.parse::<u64>().map_err(|_| format!("invalid window id {s:?}"))
+        s.parse::<u64>()
+            .map_err(|_| format!("invalid window id {s:?}"))
     }
 }
 

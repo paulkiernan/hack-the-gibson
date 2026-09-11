@@ -77,7 +77,7 @@ use pulses::Pulses;
 use std::fmt;
 use targets::{SceneTargets, HDR_FORMAT};
 use towers::Towers;
-use uniforms::{FrameUniform, projection_matrix, view_matrix};
+use uniforms::{projection_matrix, view_matrix, FrameUniform};
 use util::pipeline_layout;
 
 /// Errors surfaced by the renderer.
@@ -752,13 +752,17 @@ impl Renderer {
                         wgpu::CurrentSurfaceTexture::Success(t)
                         | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
                         wgpu::CurrentSurfaceTexture::Timeout => {
-                            log::debug!("gibson-render: surface timeout after reconfigure; frame skipped");
+                            log::debug!(
+                                "gibson-render: surface timeout after reconfigure; frame skipped"
+                            );
                             self.skipped += 1;
                             self.skipped_timeout += 1;
                             return Ok(());
                         }
                         wgpu::CurrentSurfaceTexture::Occluded => {
-                            log::debug!("gibson-render: surface occluded after reconfigure; frame skipped");
+                            log::debug!(
+                                "gibson-render: surface occluded after reconfigure; frame skipped"
+                            );
                             self.skipped += 1;
                             self.skipped_occluded += 1;
                             return Ok(());
@@ -812,7 +816,10 @@ impl Renderer {
     }
 
     /// Render one frame offscreen and read back tightly packed sRGB8 rows, top row first.
-    pub fn render_to_rgba(&mut self, frame: &FrameData) -> Result<(u32, u32, Vec<u8>), RenderError> {
+    pub fn render_to_rgba(
+        &mut self,
+        frame: &FrameData,
+    ) -> Result<(u32, u32, Vec<u8>), RenderError> {
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let size = wgpu::Extent3d {
             width: self.width,
@@ -895,8 +902,8 @@ impl Renderer {
         self.ensure_scene_size(frame.settings.crt);
 
         // Camera matrices.
-        let vp = projection_matrix(&frame.camera, self.width, self.height)
-            * view_matrix(&frame.camera);
+        let vp =
+            projection_matrix(&frame.camera, self.width, self.height) * view_matrix(&frame.camera);
         let prev = if self.has_prev {
             self.prev_view_proj
         } else {
@@ -925,10 +932,8 @@ impl Renderer {
             .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniform));
 
         // Instance + geometry uploads.
-        self.towers
-            .upload(&self.device, &self.queue, frame.towers);
-        self.pulses
-            .upload(&self.device, &self.queue, frame.pulses);
+        self.towers.upload(&self.device, &self.queue, frame.towers);
+        self.pulses.upload(&self.device, &self.queue, frame.pulses);
         self.floor
             .ensure_grid(&self.device, &self.queue, frame.settings.grid as f32);
 

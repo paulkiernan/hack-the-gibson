@@ -6,8 +6,8 @@
 //! share the same block geometry. Glyph / bar / triangle content is drawn afterwards into the R
 //! channel only.
 
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 
 use gibson_types::{ATLAS_HEIGHT, ATLAS_WIDTH};
 
