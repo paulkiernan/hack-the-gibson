@@ -1,10 +1,10 @@
 {
-    "version": "2.0.3",
+    "version": "2.1.0",
     "description": "Tower-city flythrough from Hackers (1995), rendered with wgpu, as a Windows screen saver.",
     "homepage": "https://paulkiernan.github.io/gibson-screensaver/",
     "license": "GPL-3.0-or-later",
-    "url": "https://github.com/paulkiernan/gibson-screensaver/releases/download/2.0.3/Gibson.scr",
-    "hash": "52e676be77cb439e96bac246acc22379e3980aa9fbbeb5e1aecadcaba967fa7f",
+    "url": "https://github.com/paulkiernan/gibson-screensaver/releases/download/2.1.0/Gibson.scr",
+    "hash": "845ecbdae06a022f8a15bb1253e78792f327addf57577e400de643ffb8288dd3",
     "installer": {
         "script": [
             "$scr = Join-Path $dir 'Gibson.scr'",

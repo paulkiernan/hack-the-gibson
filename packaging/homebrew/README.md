@@ -5,9 +5,9 @@ A cask for the owner's **personal tap**, using the `screen_saver` stanza so
 
 | Field | Value |
 | --- | --- |
-| Version | `2.0.3` |
-| Asset | `Gibson.saver.zip` from release `2.0.3` |
-| SHA256 | `eae196169bbe2c8ef30fb84bafcf51ff0de02b7153b607f4c0f93bf06843a06c` |
+| Version | `2.1.0` |
+| Asset | `Gibson.saver.zip` from release `2.1.0` |
+| SHA256 | `a290dc1a9e8853254cd12549b6971285d1c39ea1c7607aa6123b9574628303ee` |
 | Minimum macOS | `>= :sonoma` (14.0), from the bundle's own `LSMinimumSystemVersion` |
 
 The hash is the one in that release's published `SHA256SUMS`, so it describes
@@ -54,7 +54,7 @@ cd homebrew-tap
 mkdir -p Casks/h
 cp /path/to/packaging/homebrew/gibson-screensaver.rb Casks/h/
 git add Casks/h/gibson-screensaver.rb
-git commit -m 'gibson-screensaver 2.0.3'
+git commit -m 'gibson-screensaver 2.1.0'
 git push
 ```
 
@@ -106,8 +106,11 @@ caveat. Neither is a correctness problem in a tap.
   `crates/gibson-app/src/config.rs` uses) and the saver's preferences domain.
   The saver stores its options through `ScreenSaverDefaults` under the bundle
   identifier `org.hackthegibson.TheGibson` (`platform/macos/Sources/Settings.swift`),
-  which is the domain the plist path is derived from. Whether that lands in
-  `~/Library/Preferences/` or in the `ByHost` subdirectory has **not** been
+  which is the domain the plist path is derived from. That identifier still says
+  `hackthegibson`: the project rename changed the repository and the product
+  name, not the bundle identifier, and changing it would strand every existing
+  user's saved options. Leave it as it is in the `zap` stanza. Whether it lands
+  in `~/Library/Preferences/` or in the `ByHost` subdirectory has **not** been
   checked - if a user reports leftovers, `brew zap` output will show the real
   path, and it can be added to the list.
 

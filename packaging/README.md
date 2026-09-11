@@ -7,8 +7,8 @@ at the end.
 
 ## The release contract these files pin
 
-Every file here pins release **`2.0.3`**, the current published release
-(confirmed with `gh release view`, published 2026-09-10). A release is created
+Every file here pins release **`2.1.0`**, the current published release
+(confirmed with `gh release view`, published 2026-09-11). A release is created
 by pushing a bare-semver tag, which runs `.github/workflows/release.yml` and
 publishes these assets - the list in that workflow's `RELEASE_ASSETS` is the
 single source of truth, and if an asset is ever renamed, every file in this
@@ -18,16 +18,20 @@ directory needs a matching edit:
 | --- | --- |
 | `Gibson.saver.zip` | the Homebrew cask, Screensavers Planet, the awesome list |
 | `Gibson.scr` | the Scoop manifest |
-| `gibson-screensaver-linux-x86_64.tar.gz` | nothing here - the AUR package builds from source; the tarball is for manual installs |
+| `gibson-screensaver-linux-x86_64.tar.gz` | the AUR `-bin` package (`packaging/aur-bin/`); the source package builds from the tag tarball instead |
 | `gibson-screensaver-macos-universal.tar.gz` | nothing here |
 | `gibson-screensaver-web.zip` | nothing here |
 | `SHA256SUMS` | the hash source for the Scoop and Homebrew manifests |
 
-The AUR package deliberately builds from the **tag tarball**
-(`.../archive/refs/tags/2.0.3.tar.gz`), not from
+The AUR gets **two** packages. `aur/PKGBUILD` deliberately builds from the
+**tag tarball** (`.../archive/refs/tags/2.1.0.tar.gz`), not from
 `gibson-screensaver-linux-x86_64.tar.gz`. That is what lets it take the bare name
-`gibson-screensaver` instead of `gibson-screensaver-bin`: the AUR reserves `-bin` for
-packages whose sources are not available, and here they are.
+`gibson-screensaver`: the AUR reserves `-bin` for packages built from prebuilt
+deliverables when the sources are available, and here they are. `aur-bin/` is the
+prebuilt variant and therefore *must* carry the suffix - it installs the Linux
+tarball, saves the user a Rust compile, and `provides`/`conflicts` with the
+source package. The reasoning, and why both are worth publishing, is in
+[`aur/README.md`](aur/README.md#the-prebuilt-package-gibson-screensaver-bin).
 
 ## Channels pursued, and the order to do them in
 
@@ -45,6 +49,10 @@ packages whose sources are not available, and here they are.
    verification step that has not been possible on this machine. Build it in a
    clean chroot and read `namcap`'s output before pushing; the runbook is in
    [`aur/README.md`](aur/README.md).
+5. **AUR, `-bin` package** - [`aur-bin/`](aur-bin/). Publish it immediately
+   after the source package: same program, prebuilt binary, `provides`/`conflicts`
+   with the source package. Rationale in
+   [`aur/README.md`](aur/README.md#the-prebuilt-package-gibson-screensaver-bin).
 
 Two further channels are worth doing *after* those, in this order, because both
 need something that does not exist yet:
@@ -118,11 +126,14 @@ disclosure as above so the reviewer is not surprised by a Gatekeeper warning.
 
 | File | Checked on this machine | Still needs |
 | --- | --- | --- |
-| `aur/PKGBUILD` | `bash -n` parses; the source URL, tag and tarball top-level directory were verified by downloading it; every `depends` entry was traced to a dlopen site in the pinned crate versions and to that package's file list on archlinux.org | a build in a clean chroot (`extra-x86_64-build`), `namcap`, and `updpkgsums` to replace the placeholder `sha256sums` |
-| `aur/README.md` | the SSH/push flow, `.SRCINFO` and chroot commands are quoted from the AUR and devtools documentation; the AUR RPC confirms all three candidate package names are unclaimed | first real push, and a first user's report |
-| `scoop/gibson-screensaver.json` | `python3 -m json.tool` parses; version, asset name and SHA256 match the release's `SHA256SUMS`; the asset is a PE32+ GUI x86-64 binary | any execution at all on Windows: `scoop install`, `scoop uninstall`, `checkver -u` |
-| `homebrew/gibson-screensaver.rb` | `ruby -c` passes; version, asset name and SHA256 match the release; the zip contains exactly one top-level entry, `Gibson.saver`; `CFBundleName`/`LSMinimumSystemVersion` read from `platform/macos/Info.plist` | a real `brew install --cask` from the tap, on a Mac where the saver can then be selected |
-| `packaging/README.md` | the asset list matches `RELEASE_ASSETS` in `.github/workflows/release.yml`; the tag and digests match the published release | nothing |
+| `aur/PKGBUILD` | `bash -n` parses; `sha256sums` is a **real measured digest**, not a placeholder - the tag tarball was downloaded and hashed twice, with identical results; the source URL, tag and tarball top-level directory were verified by downloading it; every `depends` entry was traced to a dlopen site in the pinned crate versions and to that package's file list on archlinux.org | a build in a clean chroot (`extra-x86_64-build`) and `namcap`; `depends` has not been confirmed complete or minimal by a real build |
+| `aur/.SRCINFO`, `aur-bin/.SRCINFO` | **hand-written, not generated**: each one is field for field identical to its `PKGBUILD` (the `PKGBUILD`'s variables were dumped with `declare -p` and diffed against an independent parse of the `.SRCINFO`) | `makepkg --printsrcinfo > .SRCINFO` on Arch before the first push, and again after any metadata change |
+| `aur/LICENSE` | byte-identical to devtools' `data/LICENSE` - Arch's 0BSD package-source licence (RFC40), which the current AUR submission guidelines ask for; not the packaged software's licence | nothing |
+| `aur-bin/PKGBUILD` | `bash -n` parses; both `sha256sums` measured from the published bytes; the asset tarball's top-level directory and filenames confirmed by extracting it (it carries no licence file, hence the second source) | the same clean-chroot build and `namcap` run as the source package |
+| `aur/README.md` | the SSH/push flow, `.SRCINFO`, package-source-licence and chroot commands are quoted from the current AUR submission guidelines and Arch package guidelines; the AUR RPC confirms all candidate package names are unclaimed | first real push, and a first user's report |
+| `scoop/gibson-screensaver.json` | `python3 -m json.tool` parses; version, asset name and SHA256 measured from the published asset and equal to the release's `SHA256SUMS`; the asset is a PE32+ GUI x86-64 binary | any execution at all on Windows: `scoop install`, `scoop uninstall`, `checkver -u` |
+| `homebrew/gibson-screensaver.rb` | `ruby -c` passes; version, asset name and SHA256 measured from the published asset; the zip contains exactly one top-level entry, `Gibson.saver`; `CFBundleName`/`LSMinimumSystemVersion` read from `platform/macos/Info.plist` | a real `brew install --cask` from the tap, on a Mac where the saver can then be selected |
+| `packaging/README.md` | the asset list matches `RELEASE_ASSETS` in `.github/workflows/release.yml`; the tag and every digest match the published release | nothing |
 
 Nothing in this directory can be built or installed on the machine it was
 prepared on: there is no Arch Linux, no pacman, no makepkg, no Windows and no
@@ -136,9 +147,13 @@ file, and each one says which specific claims were read out of a primary source
 On a new tag, in one pass:
 
 ```sh
-# AUR
+# AUR - source package
 cd <aur clone>
-# editor: pkgver=2.0.4, pkgrel=1
+# editor: pkgver=2.1.1, pkgrel=1
+updpkgsums
+makepkg --printsrcinfo > .SRCINFO
+# AUR - bin package, in its own clone (pkgver in one place, both digests refreshed)
+cd <aur-bin clone>
 updpkgsums
 makepkg --printsrcinfo > .SRCINFO
 
@@ -147,6 +162,11 @@ makepkg --printsrcinfo > .SRCINFO
 
 # Homebrew cask: bump version and sha256 together, sha256 from the release's SHA256SUMS
 ```
+
+Every digest in these files was measured by downloading the published asset, not
+copied from a build log, and `.SRCINFO` must be regenerated on Arch (never
+hand-edited) whenever a `PKGBUILD` field it carries changes. Forgetting that is
+the most common way an AUR page goes stale.
 
 The tag and the `[workspace.package]` version in `Cargo.toml` are asserted equal
 by the release workflow's guard job, and the tag has no `v` prefix, so the version

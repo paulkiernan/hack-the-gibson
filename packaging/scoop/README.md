@@ -5,9 +5,9 @@ published digest:
 
 | Field | Value |
 | --- | --- |
-| Version | `2.0.3` |
-| Asset | `Gibson.scr` (from release `2.0.3`) |
-| SHA256 | `52e676be77cb439e96bac246acc22379e3980aa9fbbeb5e1aecadcaba967fa7f` |
+| Version | `2.1.0` |
+| Asset | `Gibson.scr` (from release `2.1.0`) |
+| SHA256 | `845ecbdae06a022f8a15bb1253e78792f327addf57577e400de643ffb8288dd3` |
 
 The hash is the one GitHub's own `SHA256SUMS` asset carries for the same
 release, not a value re-computed from a local download, so it is the digest of
@@ -141,7 +141,7 @@ than from a local download.
 ## Verified / not verified
 
 Checked here: the manifest parses (`python3 -m json.tool`); the version, asset
-name and SHA256 match GitHub's `SHA256SUMS` for release `2.0.3`; the asset really
+name and SHA256 match GitHub's `SHA256SUMS` for release `2.1.0`; the asset really
 is a PE32+ GUI-subsystem x86-64 executable and its imports include `opengl32.dll`
 and `dxgi.dll` (checked with `llvm-objdump -p` on the downloaded asset), which is
 consistent with it being the wgpu app.

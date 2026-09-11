@@ -1,0 +1,34 @@
+# Hand-written, NOT generated: this file was produced on macOS, where makepkg
+# does not exist. Before the first push, regenerate it on Arch with
+#   makepkg --printsrcinfo > .SRCINFO
+# and commit the result. Regenerate again after ANY PKGBUILD edit that shows up
+# in this file (pkgver, pkgrel, source, sha256sums, depends, makedepends,
+# optdepends, pkgdesc, arch, license). See README.md.
+pkgbase = gibson-screensaver
+	pkgdesc = Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)
+	pkgver = 2.1.0
+	pkgrel = 1
+	url = https://github.com/paulkiernan/gibson-screensaver
+	arch = x86_64
+	license = GPL-3.0-or-later
+	makedepends = cargo
+	depends = glibc
+	depends = gcc-libs
+	depends = libx11
+	depends = libxcb
+	depends = libxcursor
+	depends = libxi
+	depends = libxkbcommon
+	depends = libxkbcommon-x11
+	depends = wayland
+	depends = vulkan-icd-loader
+	optdepends = xscreensaver: run it as an xscreensaver hack (X11 only)
+	optdepends = vulkan-radeon: Vulkan driver for AMD GPUs
+	optdepends = vulkan-intel: Vulkan driver for Intel GPUs
+	optdepends = vulkan-nouveau: Vulkan driver for NVIDIA GPUs (Nouveau)
+	optdepends = nvidia-utils: Vulkan driver for NVIDIA GPUs (proprietary)
+	optdepends = vulkan-swrast: software Vulkan rasteriser (lavapipe), for machines with no GPU driver
+	source = gibson-screensaver-2.1.0.tar.gz::https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/2.1.0.tar.gz
+	sha256sums = 3d9ba1b8c98e9259960b0ccec21a92eadc1a983f90a454862385049113349413
+
+pkgname = gibson-screensaver

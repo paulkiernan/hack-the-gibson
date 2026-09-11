@@ -25,13 +25,13 @@
 # The X11 / xscreensaver host is smoke-tested in CI on every push: it adopts a
 # real X window under Xvfb with a software Vulkan rasteriser (lavapipe), via
 # both $XSCREENSAVER_WINDOW and --window-id, and asserts a nonzero presented
-# frame count on exit. That is a software rasteriser under a headless X server:
-# it is not verified on real hardware with a real GPU driver, and not verified
-# under the xscreensaver daemon itself.
+# frame count on exit (a recorded run presented 258 frames). That is a software
+# rasteriser under a headless X server: it is not verified on real hardware with
+# a real GPU driver, and not verified under the xscreensaver daemon itself.
 #
 # ── depends: read out of the code, not copied from a template ──────────────
-# The released Linux binary links almost nothing. `readelf -d` (verified with
-# llvm-objdump against the 2.0.3 asset) shows only libgcc_s.so.1, libm.so.6,
+# The released Linux binary links almost nothing. `readelf -d` (checked with
+# GNU objdump -p against the 2.1.0 asset) shows only libgcc_s.so.1, libm.so.6,
 # libc.so.6 and the dynamic loader. Every X11 / Wayland / Vulkan library is
 # dlopen()ed at runtime, so namcap cannot see any of them and each one has to
 # be written down here by hand:
@@ -68,18 +68,17 @@
 # is never initialised and libEGL is never opened. Add libglvnd only if that
 # selection changes.
 #
-# ── sha256sums is a placeholder ───────────────────────────────────────────
-# Run `updpkgsums` in this directory to fill it in; the AUR will not build a
-# package whose sums do not match, and a package with 'SKIP' installs without
-# verifying anything. GitHub generates tag tarballs on demand, so a force-retag
-# invalidates any recorded digest. Measured at release time, the 2.0.3 tarball
-# hashed to 3edbcb68182943e073c64a07535b29a26cc64c39e2c2479af98514e96481a298 -
-# recorded purely as a cross-check for whoever runs updpkgsums. Pasting that
-# digest in place of 'SKIP' also works, but only if the tarball has not been
-# regenerated since; updpkgsums is the option that cannot go stale.
+# ── sha256sums ────────────────────────────────────────────────────────────
+# Measured, not guessed: the value below is the SHA256 of
+# https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/2.1.0.tar.gz
+# as downloaded on 2026-09-11, and GitHub generated a byte-identical tarball on
+# a second download. `updpkgsums` in this directory will re-measure it; run that
+# after any change to `source`, and note that a force-retag (`git tag -f`) makes
+# GitHub regenerate the tarball and invalidates the digest even though pkgver has
+# not moved.
 
 pkgname=gibson-screensaver
-pkgver=2.0.3
+pkgver=2.1.0
 pkgrel=1
 pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)'
 arch=('x86_64')
@@ -121,7 +120,7 @@ optdepends=(
 )
 
 source=("$pkgname-$pkgver.tar.gz::https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('3d9ba1b8c98e9259960b0ccec21a92eadc1a983f90a454862385049113349413')
 
 prepare() {
   cd "$pkgname-$pkgver"
