@@ -1,9 +1,12 @@
 # Maintainer: Paul Kiernan <paulkiernan1@gmail.com>
 #
-# ── Why the package and the installed executable are `hack-the-gibson` ─────
+# ── Why the package and the installed executable are `gibson-screensaver` ─────
 # Upstream xscreensaver has shipped its own, unrelated `gibson` hack since
-# 5.44 (Jamie Zawinski, 2020 - same film, same filenames, different program).
-# Two separate things follow:
+# 5.44 (Jamie Zawinski, 2020 - same film, same filenames, different program),
+# at /usr/lib/xscreensaver/gibson and
+# /usr/share/xscreensaver/config/gibson.xml. This package must therefore never
+# install anything under the bare name `gibson`; `gibson-screensaver` is the
+# name it claims instead. Two separate things follow:
 #
 #   * Installing a descriptor as /usr/share/xscreensaver/config/gibson.xml is a
 #     pacman conflicting-files error, because Arch's `xscreensaver` package
@@ -57,7 +60,7 @@
 # confirmed complete or minimal by namcap. Do that before pushing to the AUR:
 #
 #   namcap PKGBUILD
-#   namcap hack-the-gibson-*.pkg.tar.zst
+#   namcap gibson-screensaver-*.pkg.tar.zst
 #
 # Deliberately NOT in depends: libglvnd. wgpu's GLES backend is compiled into
 # the binary and can dlopen libEGL.so.1, but the native code asks for
@@ -75,12 +78,12 @@
 # digest in place of 'SKIP' also works, but only if the tarball has not been
 # regenerated since; updpkgsums is the option that cannot go stale.
 
-pkgname=hack-the-gibson
+pkgname=gibson-screensaver
 pkgver=2.0.3
 pkgrel=1
 pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)'
 arch=('x86_64')
-url='https://github.com/paulkiernan/hack-the-gibson'
+url='https://github.com/paulkiernan/gibson-screensaver'
 license=('GPL-3.0-or-later')
 
 depends=(
@@ -117,7 +120,7 @@ optdepends=(
   'vulkan-swrast: software Vulkan rasteriser (lavapipe), for machines with no GPU driver'
 )
 
-source=("$pkgname-$pkgver.tar.gz::https://github.com/paulkiernan/hack-the-gibson/archive/refs/tags/$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 prepare() {
@@ -150,12 +153,12 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
 
-  # Basename must be hack-the-gibson so it matches the descriptor - see the
+  # Basename must be gibson-screensaver so it matches the descriptor - see the
   # header comment.
-  install -Dm0755 target/release/gibson-app "$pkgdir/usr/bin/hack-the-gibson"
+  install -Dm0755 target/release/gibson-app "$pkgdir/usr/bin/gibson-screensaver"
 
-  install -Dm0644 platform/linux/hack-the-gibson.xml \
-    "$pkgdir/usr/share/xscreensaver/config/hack-the-gibson.xml"
+  install -Dm0644 platform/linux/gibson-screensaver.xml \
+    "$pkgdir/usr/share/xscreensaver/config/gibson-screensaver.xml"
 
   install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"

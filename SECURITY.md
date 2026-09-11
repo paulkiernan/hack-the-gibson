@@ -43,7 +43,7 @@ Fixes land on `main`; there are no backports to older releases.
 
 Use GitHub's private vulnerability reporting: **Security** tab, then **Report a
 vulnerability**, or go straight to
-<https://github.com/paulkiernan/hack-the-gibson/security/advisories/new>.
+<https://github.com/paulkiernan/gibson-screensaver/security/advisories/new>.
 Please do not open a public issue for a vulnerability before it is fixed.
 
 A useful report includes:

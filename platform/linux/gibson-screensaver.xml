@@ -2,11 +2,11 @@
 <!--
   xscreensaver hack descriptor for Hack the Gibson.
 
-  The name is `hack-the-gibson`, not `gibson`, and that is load-bearing:
+  The name is `gibson-screensaver`, not `gibson`, and that is load-bearing:
   xscreensaver-settings resolves this file by looking up
   <hack-configuration-path>/<basename-of-program>.xml (hack_xml_file() in
   driver/demo-Gtk-conf.c), so the installed executable must also be named
-  `hack-the-gibson`. The name `gibson` would collide with the unrelated gibson
+  `gibson-screensaver`. The name `gibson` would collide with the unrelated gibson
   hack that upstream xscreensaver has shipped since 5.44 - same film, same
   filenames, different program.
 
@@ -31,12 +31,12 @@
   program's own defaults, so merely opening the settings dialog does not
   change how the hack runs.)
 
-  Install: put the binary on PATH as `hack-the-gibson`, copy this file to
-  /usr/share/xscreensaver/config/hack-the-gibson.xml, then add
-  `programs: hack-the-gibson` (no arguments) to ~/.xscreensaver. See
+  Install: put the binary on PATH as `gibson-screensaver`, copy this file to
+  /usr/share/xscreensaver/config/gibson-screensaver.xml, then add
+  `programs: gibson-screensaver` (no arguments) to ~/.xscreensaver. See
   platform/linux/README.md for the whole recipe and the reasoning above.
 -->
-<screensaver name="hack-the-gibson" _label="Hack the Gibson">
+<screensaver name="gibson-screensaver" _label="Hack the Gibson">
 
   <number id="speed" type="slider"
           arg="--speed %" _label="Fly speed"

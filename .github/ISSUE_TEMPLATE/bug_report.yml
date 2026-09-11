@@ -92,7 +92,7 @@ body:
           launched it as a screen saver there is no console - in that case say
           which arguments Windows passed, which is usually `/s`, `/p <hwnd>` or
           `/c`.
-        - **Linux xscreensaver**: `RUST_LOG=info hack-the-gibson`, or run the
+        - **Linux xscreensaver**: `RUST_LOG=info gibson-screensaver`, or run the
           shipped harness: `bash platform/linux/smoke-test.sh target/release/gibson-app`.
           The host logs an `adapter` line and the presented/skipped frame
           counters on exit.
@@ -108,8 +108,8 @@ body:
     attributes:
       label: Settings
       description: |
-        Contents of `gibson.toml` (macOS: ~/Library/Application Support/hack-the-gibson/gibson.toml,
-        Linux: ~/.config/hack-the-gibson/gibson.toml, Windows: %APPDATA%\hack-the-gibson\gibson.toml),
+        Contents of `gibson.toml` (macOS: ~/Library/Application Support/gibson-screensaver/gibson.toml,
+        Linux: ~/.config/gibson-screensaver/gibson.toml, Windows: %APPDATA%\gibson-screensaver\gibson.toml),
         any command-line flags, or the query string for the web build.
         Settings are clamped on load, so a bad value cannot put the renderer out
         of range - but it does change what you see, so it is worth pasting.

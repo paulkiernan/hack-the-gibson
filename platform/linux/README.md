@@ -21,9 +21,9 @@ both paths matter:
 is given or when `XSCREENSAVER_WINDOW` is set. That is why the descriptor
 carries no `<command>` element — anything listed there is added verbatim to
 the `programs:` line and would break one path or the other. See the comment
-at the top of [`hack-the-gibson.xml`](hack-the-gibson.xml).
+at the top of [`gibson-screensaver.xml`](gibson-screensaver.xml).
 
-## Why the name is `hack-the-gibson`, not `gibson`
+## Why the name is `gibson-screensaver`, not `gibson`
 
 Upstream xscreensaver has shipped its own, unrelated `gibson` hack since
 version 5.44 (written by Jamie Zawinski in 2020, and also about the 1995
@@ -41,37 +41,37 @@ film). Installing anything of ours under that name collides twice over:
 The name is not cosmetic: `xscreensaver-settings` finds a hack's descriptor
 by taking the basename of the program and looking for
 `<hack-configuration-path>/<basename>.xml`. The installed executable and the
-descriptor therefore have to agree, and both are `hack-the-gibson`.
+descriptor therefore have to agree, and both are `gibson-screensaver`.
 
 ## Install
 
 1. Build the binary:
 
        cargo build --release -p gibson-app
-       install -Dm755 target/release/gibson-app ~/.local/bin/hack-the-gibson
+       install -Dm755 target/release/gibson-app ~/.local/bin/gibson-screensaver
 
-   The basename must be `hack-the-gibson`; `~/.local/bin` just has to be on
+   The basename must be `gibson-screensaver`; `~/.local/bin` just has to be on
    `PATH`.
 
 2. Install the hack descriptor so the xscreensaver settings dialog knows the
    options and can find the matching program:
 
-       sudo install -Dm644 platform/linux/hack-the-gibson.xml \
-            /usr/share/xscreensaver/config/hack-the-gibson.xml
+       sudo install -Dm644 platform/linux/gibson-screensaver.xml \
+            /usr/share/xscreensaver/config/gibson-screensaver.xml
 
 3. Add a `programs:` line to `~/.xscreensaver` (create it with
    `xscreensaver-demo` first if it does not exist). No arguments:
 
-       programs: hack-the-gibson
+       programs: gibson-screensaver
 
-   `xscreensaver` resolves `hack-the-gibson` on `PATH`; pass an absolute path
+   `xscreensaver` resolves `gibson-screensaver` on `PATH`; pass an absolute path
    instead if you installed it elsewhere, e.g.
 
-       programs: /home/you/.local/bin/hack-the-gibson
+       programs: /home/you/.local/bin/gibson-screensaver
 
 4. Pick "Hack the Gibson" in `xscreensaver-demo` and set a blanking mode /
    timer as usual. The demo's Settings dialog exposes "Fly speed" and "Pulse
-   streaks"; everything else is configured in `~/.config/hack-the-gibson/gibson.toml`
+   streaks"; everything else is configured in `~/.config/gibson-screensaver/gibson.toml`
    (created with defaults and comments on first run).
 
 The X11 host renders through wgpu's Vulkan backend into the window
@@ -103,7 +103,7 @@ element, every slider arg has its `%` value placeholder, and every switch the
 descriptor can emit is accepted by `--help`. All of that is a software adapter
 under a headless X server, so it says nothing about GPU driver behaviour, real
 Xinerama/RANDR setups, or the xscreensaver daemon itself. If it fails on your
-machine, report the `RUST_LOG=info XSCREENSAVER_WINDOW=<xid> hack-the-gibson`
+machine, report the `RUST_LOG=info XSCREENSAVER_WINDOW=<xid> gibson-screensaver`
 log output.
 
 ## Testing it yourself

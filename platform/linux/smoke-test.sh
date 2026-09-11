@@ -32,7 +32,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 binary=${1:-$repo_root/target/release/gibson-app}
-descriptor=$repo_root/platform/linux/hack-the-gibson.xml
+descriptor=$repo_root/platform/linux/gibson-screensaver.xml
 render_seconds=${SMOKE_RENDER_SECONDS:-20}
 size=${SMOKE_SIZE:-640x480}
 launch_timeout=${SMOKE_LAUNCH_TIMEOUT:-90}

@@ -25,7 +25,7 @@ That is all the OS needs. The screensaver modes work like any classic `.scr`:
 
 ## Settings
 
-All tunables live in `%APPDATA%\hack-the-gibson\gibson.toml` (created with
+All tunables live in `%APPDATA%\gibson-screensaver\gibson.toml` (created with
 defaults and explanatory comments on first run — including the first `/c`).
 Editing it while the screensaver is not running takes effect on the next
 activation; the values are the same ones documented in the project README.

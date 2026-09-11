@@ -7,7 +7,7 @@ body:
       value: |
         This is the project's primary standard: the visuals are graded against
         the observed frames and crew interviews in
-        [docs/film-reference.md](https://github.com/paulkiernan/hack-the-gibson/blob/main/docs/film-reference.md),
+        [docs/film-reference.md](https://github.com/paulkiernan/gibson-screensaver/blob/main/docs/film-reference.md),
         not against taste. A report that names the reference it disagrees with
         is actionable; "the towers look wrong" is not.
 

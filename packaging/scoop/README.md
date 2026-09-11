@@ -1,4 +1,4 @@
-# Scoop: `hack-the-gibson.json`
+# Scoop: `gibson-screensaver.json`
 
 A Scoop manifest for the Windows `.scr`, pinned to the release asset and its
 published digest:
@@ -22,7 +22,7 @@ and re-reads the digest out of that release's `SHA256SUMS`:
 
 ```json
 "hash": {
-  "url": "https://github.com/paulkiernan/hack-the-gibson/releases/download/$version/SHA256SUMS",
+  "url": "https://github.com/paulkiernan/gibson-screensaver/releases/download/$version/SHA256SUMS",
   "find": "$sha256\\s+Gibson\\.scr"
 }
 ```
@@ -31,7 +31,7 @@ To apply it by hand on a Windows box with Scoop installed:
 
 ```powershell
 cd <bucket repo>
-.\bin\checkver.ps1 hack-the-gibson -u
+.\bin\checkver.ps1 gibson-screensaver -u
 ```
 
 ## The Windows choreography, and what is honestly unknown
@@ -56,7 +56,7 @@ from documentation without a Windows machine to try it on:
   On 64-bit systems `SysWOW64` is also mentioned in some sources; a 64-bit
   `.scr` belongs in `System32` either way.
 - **Consequence, and the reason this manifest is conservative:** a per-user
-  Scoop install puts `Gibson.scr` in `%USERPROFILE%\scoop\apps\hack-the-gibson\<version>`,
+  Scoop install puts `Gibson.scr` in `%USERPROFILE%\scoop\apps\gibson-screensaver\<version>`,
   which is a directory Windows does not enumerate, so the saver will *not* be
   offered in Settings. What does work immediately without any install step:
   double-clicking the file, or running `Gibson.scr /s` (full screen) and
@@ -86,7 +86,7 @@ URLs and its hash are checked; its behaviour is not.
 Create a public GitHub repository named `scoop-bucket` (the name matters only in
 that the bucket is added by URL, but `scoop-bucket` is the convention users
 expect), put the manifest in it at the repository root as
-`hack-the-gibson.json`, and commit. That is the whole publishing step - Scoop
+`gibson-screensaver.json`, and commit. That is the whole publishing step - Scoop
 buckets are read straight out of the repository, with no review and no
 signing gate.
 
@@ -94,10 +94,10 @@ Users then:
 
 ```powershell
 scoop bucket add paulkiernan https://github.com/paulkiernan/scoop-bucket
-scoop install paulkiernan/hack-the-gibson
+scoop install paulkiernan/gibson-screensaver
 # or, to get the System32 copy so it appears in Screen Saver Settings,
 # from an elevated PowerShell:
-scoop install -g paulkiernan/hack-the-gibson
+scoop install -g paulkiernan/gibson-screensaver
 ```
 
 Tradeoff: users need the extra `scoop bucket add` line, and `scoop search` only
@@ -108,7 +108,7 @@ pushed, and the owner can iterate on it without a review round-trip.
 
 Extras is the general-purpose official bucket. Submission means a pull request
 against <https://github.com/ScoopInstaller/Extras> adding
-`bucket/hack-the-gibson.json`.
+`bucket/gibson-screensaver.json`.
 
 - Requirements: manifest validity (the bucket's CI validates every manifest
   against its JSON schema), a working `checkver`, and the acceptance criteria at
@@ -128,10 +128,10 @@ against <https://github.com/ScoopInstaller/Extras> adding
 
 ```powershell
 # in the bucket clone, on Windows, with the manifest's version set back
-.\bin\checkver.ps1 hack-the-gibson -u
+.\bin\checkver.ps1 gibson-screensaver -u
 # then check that url, hash and the version all moved together and install it
-scoop install hack-the-gibson
-scoop uninstall hack-the-gibson
+scoop install gibson-screensaver
+scoop uninstall gibson-screensaver
 ```
 
 If `checkver` is unavailable, bump `version`, the two URLs in `autoupdate`, and

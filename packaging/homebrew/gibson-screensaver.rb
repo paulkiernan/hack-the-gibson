@@ -9,14 +9,14 @@
 #   * a self-submitted cask must meet Homebrew's notability thresholds (90
 #     forks, 90 watchers or 225 stars for the repository owner); this repo is
 #     far below them.
-cask "hack-the-gibson" do
+cask "gibson-screensaver" do
   version "2.0.3"
   sha256 "eae196169bbe2c8ef30fb84bafcf51ff0de02b7153b607f4c0f93bf06843a06c"
 
-  url "https://github.com/paulkiernan/hack-the-gibson/releases/download/#{version}/Gibson.saver.zip"
+  url "https://github.com/paulkiernan/gibson-screensaver/releases/download/#{version}/Gibson.saver.zip"
   name "The Gibson"
   desc "Tower-city flythrough from Hackers (1995)"
-  homepage "https://paulkiernan.github.io/hack-the-gibson/"
+  homepage "https://paulkiernan.github.io/gibson-screensaver/"
 
   # The bundle declares LSMinimumSystemVersion 14.0, and that is what the
   # release workflow builds and tests against.
@@ -44,7 +44,7 @@ cask "hack-the-gibson" do
   EOS
 
   zap trash: [
-    "~/Library/Application Support/hack-the-gibson",
+    "~/Library/Application Support/gibson-screensaver",
     "~/Library/Preferences/org.hackthegibson.TheGibson.plist",
   ]
 end

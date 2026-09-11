@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 
 use gibson_types::Settings;
 
-/// Default config path: `<config dir>/hack-the-gibson/gibson.toml`
+/// Default config path: `<config dir>/gibson-screensaver/gibson.toml`
 /// (macOS `~/Library/Application Support`, Linux `~/.config`, Windows `%APPDATA%`).
 pub fn default_path() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("hack-the-gibson").join("gibson.toml")
+    base.join("gibson-screensaver").join("gibson.toml")
 }
 
 /// The commented default config file. Values must stay byte-for-byte equal to

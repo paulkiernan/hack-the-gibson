@@ -16,7 +16,7 @@ production research.
 
 ## Live demo
 
-**<https://paulkiernan.github.io/hack-the-gibson/>**
+**<https://paulkiernan.github.io/gibson-screensaver/>**
 
 The page uses WebGPU where the browser exposes it and falls back to WebGL2
 otherwise — so Chrome 113+, Safari 26+, and Firefox with WebGPU enabled run
@@ -24,13 +24,13 @@ the WebGPU path, and any WebGL2-capable browser without WebGPU still gets
 the scene through the fallback. The URL accepts query parameters — see the
 Web entry under [Settings](#settings).
 
-To host it yourself instead, `hack-the-gibson-web.zip` on the
-[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
+To host it yourself instead, `gibson-screensaver-web.zip` on the
+[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
 is a static build of the same page. Unzip it and serve it over HTTP — the
 wasm module needs server headers, so a `file://` URL will not work:
 
 ```bash
-unzip hack-the-gibson-web.zip
+unzip gibson-screensaver-web.zip
 cd web
 python3 -m http.server 8080
 ```
@@ -44,7 +44,7 @@ python3 -m http.server 8080
 ## Install
 
 Prebuilt downloads for every host are attached to the
-[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest).
+[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest).
 A release is published whenever a semver tag is pushed — the version alone,
 with no `v` prefix — and the tag must equal the workspace version in
 `Cargo.toml` character for character (the release workflow refuses to build
@@ -58,9 +58,9 @@ Each release carries the same six assets:
 | --- | --- |
 | `Gibson.saver.zip` | macOS screen saver bundle, universal (arm64 + x86_64) |
 | `Gibson.scr` | Windows screen saver |
-| `hack-the-gibson-macos-universal.tar.gz` | macOS windowed desktop app |
-| `hack-the-gibson-linux-x86_64.tar.gz` | Linux desktop app / xscreensaver hack, including `hack-the-gibson.xml` |
-| `hack-the-gibson-web.zip` | the static web build, for self-hosting |
+| `gibson-screensaver-macos-universal.tar.gz` | macOS windowed desktop app |
+| `gibson-screensaver-linux-x86_64.tar.gz` | Linux desktop app / xscreensaver hack, including `gibson-screensaver.xml` |
+| `gibson-screensaver-web.zip` | the static web build, for self-hosting |
 | `SHA256SUMS` | checksums covering every asset above |
 
 Download the asset you want and `SHA256SUMS` into the same directory, then
@@ -86,7 +86,7 @@ or read`.
 Requires macOS 14 or later. Either build it yourself (see
 [Building](#building)), or download `Gibson.saver.zip` (universal — Apple
 silicon and Intel) and `SHA256SUMS` from the
-[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest).
+[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest).
 
 ```bash
 # From your download directory, with the zip and SHA256SUMS both present:
@@ -123,7 +123,7 @@ Remove it with `make uninstall-saver`, or by deleting the bundle from
 ### Windows `.scr`
 
 Download `Gibson.scr` from the
-[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
+[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
 and install it the classic way: right-click the file and choose **Install**,
 or copy it to `C:\Windows\System32\Gibson.scr` and pick "The Gibson" in
 Settings > Personalization > Lock screen > Screen saver settings. Windows
@@ -148,41 +148,41 @@ every push.
 ### Linux xscreensaver
 
 `gibson-app` doubles as an xscreensaver "external window" hack. The
-`hack-the-gibson-linux-x86_64.tar.gz` asset on the
-[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
-contains the binary and the `hack-the-gibson.xml` descriptor, and unpacks into
-a `hack-the-gibson-linux-x86_64/` directory:
+`gibson-screensaver-linux-x86_64.tar.gz` asset on the
+[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
+contains the binary and the `gibson-screensaver.xml` descriptor, and unpacks into
+a `gibson-screensaver-linux-x86_64/` directory:
 
 ```bash
 # From your download directory, with the tarball and SHA256SUMS present:
 sha256sum -c --ignore-missing SHA256SUMS
 
-tar -xzf hack-the-gibson-linux-x86_64.tar.gz
-cd hack-the-gibson-linux-x86_64
+tar -xzf gibson-screensaver-linux-x86_64.tar.gz
+cd gibson-screensaver-linux-x86_64
 
-# Put the binary on PATH as `hack-the-gibson` - the basename has to match the
+# Put the binary on PATH as `gibson-screensaver` - the basename has to match the
 # descriptor, because xscreensaver-settings looks the descriptor up by the
 # program's basename - and the descriptor where xscreensaver looks for it:
-install -Dm755 gibson-app "$HOME/.local/bin/hack-the-gibson"
-sudo install -Dm644 hack-the-gibson.xml \
-     /usr/share/xscreensaver/config/hack-the-gibson.xml
+install -Dm755 gibson-app "$HOME/.local/bin/gibson-screensaver"
+sudo install -Dm644 gibson-screensaver.xml \
+     /usr/share/xscreensaver/config/gibson-screensaver.xml
 ```
 
 Then add this line to `~/.xscreensaver` (create it with `xscreensaver-demo`
 first if needed). It takes no arguments:
 
 ```text
-programs: hack-the-gibson
+programs: gibson-screensaver
 ```
 
-That line resolves `hack-the-gibson` on `PATH`; give the absolute path instead
+That line resolves `gibson-screensaver` on `PATH`; give the absolute path instead
 if `~/.local/bin` is not on yours.
 
 The name matters, and it is not `gibson`: upstream xscreensaver has shipped
 its own unrelated `gibson` hack (also about the 1995 film) since 5.44, with
 the same executable and descriptor filenames. `cargo build --release -p
 gibson-app` produces the same binary from source, and
-[`platform/linux/hack-the-gibson.xml`](platform/linux/hack-the-gibson.xml) is
+[`platform/linux/gibson-screensaver.xml`](platform/linux/gibson-screensaver.xml) is
 the descriptor the tarball ships. Full steps, the collision explained, and
 the settings-dialog note are in
 [platform/linux/README.md](platform/linux/README.md).
@@ -197,19 +197,19 @@ host is also X11 only: on a Wayland session use `swayidle` plus
 
 ### Desktop app (any platform)
 
-Grab `hack-the-gibson-macos-universal.tar.gz` (universal) or
-`hack-the-gibson-linux-x86_64.tar.gz` (glibc x86_64) from the
-[Releases page](https://github.com/paulkiernan/hack-the-gibson/releases/latest);
+Grab `gibson-screensaver-macos-universal.tar.gz` (universal) or
+`gibson-screensaver-linux-x86_64.tar.gz` (glibc x86_64) from the
+[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest);
 each unpacks into a directory holding `gibson-app`:
 
 ```bash
-tar -xzf hack-the-gibson-macos-universal.tar.gz
+tar -xzf gibson-screensaver-macos-universal.tar.gz
 
 # macOS quarantines the tarball on download and the binary is not
 # notarized, so clear the flag before running it:
-xattr -d com.apple.quarantine hack-the-gibson-macos-universal/gibson-app
+xattr -d com.apple.quarantine gibson-screensaver-macos-universal/gibson-app
 
-./hack-the-gibson-macos-universal/gibson-app
+./gibson-screensaver-macos-universal/gibson-app
 ```
 
 Or run it from source:
@@ -292,7 +292,7 @@ Where each host stores or accepts them:
   on the next activation.
 - **`gibson.toml`**: created automatically — with every key, its default,
   and a comment — the first time a desktop host or `--snapshot` run starts,
-  at `<config-dir>/hack-the-gibson/gibson.toml`, where `<config-dir>` is
+  at `<config-dir>/gibson-screensaver/gibson.toml`, where `<config-dir>` is
   `~/Library/Application Support` on macOS, `~/.config` on Linux, and
   `%APPDATA%` on Windows. The Windows `/c` mode also ensures the file
   exists and opens it in your editor. Unknown keys are ignored; missing
@@ -306,7 +306,7 @@ Where each host stores or accepts them:
   `scale`:
 
   ```text
-  https://paulkiernan.github.io/hack-the-gibson/?palette=cycle&grid=40&pulses=200
+  https://paulkiernan.github.io/gibson-screensaver/?palette=cycle&grid=40&pulses=200
   ```
 
   Supported: `speed`, `bank`, `palette`, `grid`, `pulses`, `seed`, `scale`,
@@ -347,7 +347,7 @@ together, wraps the result in a `.saver` bundle, and ad-hoc codesigns it
 target — macOS (tests + saver), Windows (tests + `.scr`), Linux (tests +
 xscreensaver host), and wasm (web bundle) — and pushing a semver tag (no `v`
 prefix) publishes all of those builds as a
-[release](https://github.com/paulkiernan/hack-the-gibson/releases/latest)
+[release](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
 with checksums.
 
 ## How it works

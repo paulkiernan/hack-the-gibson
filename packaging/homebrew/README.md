@@ -1,4 +1,4 @@
-# Homebrew cask: `hack-the-gibson.rb`
+# Homebrew cask: `gibson-screensaver.rb`
 
 A cask for the owner's **personal tap**, using the `screen_saver` stanza so
 `brew install --cask` moves `Gibson.saver` into `~/Library/Screen Savers`.
@@ -52,13 +52,13 @@ The tap repository must be named `homebrew-<tap>`; Homebrew resolves
 git clone git@github.com:paulkiernan/homebrew-tap.git
 cd homebrew-tap
 mkdir -p Casks/h
-cp /path/to/packaging/homebrew/hack-the-gibson.rb Casks/h/
-git add Casks/h/hack-the-gibson.rb
-git commit -m 'hack-the-gibson 2.0.3'
+cp /path/to/packaging/homebrew/gibson-screensaver.rb Casks/h/
+git add Casks/h/gibson-screensaver.rb
+git commit -m 'gibson-screensaver 2.0.3'
 git push
 ```
 
-`Casks/h/hack-the-gibson.rb` mirrors the layout used by `homebrew-cask` itself
+`Casks/h/gibson-screensaver.rb` mirrors the layout used by `homebrew-cask` itself
 (casks live under a directory named for the first letter of the token). A tap
 also accepts the file at the repository root, but matching the official layout
 keeps a future move to `homebrew/cask` a straight copy.
@@ -67,13 +67,13 @@ Users then run:
 
 ```sh
 brew tap paulkiernan/tap
-brew install --cask paulkiernan/tap/hack-the-gibson
+brew install --cask paulkiernan/tap/gibson-screensaver
 ```
 
 The full token can also be used in one step, which performs the tap implicitly:
 
 ```sh
-brew install --cask paulkiernan/tap/hack-the-gibson
+brew install --cask paulkiernan/tap/gibson-screensaver
 ```
 
 After a new release, bump `version` and `sha256` together:
@@ -102,7 +102,7 @@ caveat. Neither is a correctness problem in a tap.
   System Settings list shows, hence `name "The Gibson"` rather than the project
   name.
 - `zap` removes the desktop app's config directory
-  (`~/Library/Application Support/hack-the-gibson`, the path
+  (`~/Library/Application Support/gibson-screensaver`, the path
   `crates/gibson-app/src/config.rs` uses) and the saver's preferences domain.
   The saver stores its options through `ScreenSaverDefaults` under the bundle
   identifier `org.hackthegibson.TheGibson` (`platform/macos/Sources/Settings.swift`),
@@ -113,7 +113,7 @@ caveat. Neither is a correctness problem in a tap.
 
 ## Verified / not verified
 
-Checked here: `ruby -c packaging/homebrew/hack-the-gibson.rb` passes; the
+Checked here: `ruby -c packaging/homebrew/gibson-screensaver.rb` passes; the
 version, asset name and SHA256 match the release; `CFBundleName`,
 `CFBundleDisplayName`, `CFBundleIdentifier` and `LSMinimumSystemVersion` were
 read out of `platform/macos/Info.plist` in this repository; and the requirement

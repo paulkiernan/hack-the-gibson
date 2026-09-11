@@ -1,4 +1,4 @@
-# Publishing `hack-the-gibson`
+# Publishing `gibson-screensaver`
 
 Everything needed to get the project into the distribution channels that are
 worth the effort, plus the exact runbook for each. Three directories here hold
@@ -18,15 +18,15 @@ directory needs a matching edit:
 | --- | --- |
 | `Gibson.saver.zip` | the Homebrew cask, Screensavers Planet, the awesome list |
 | `Gibson.scr` | the Scoop manifest |
-| `hack-the-gibson-linux-x86_64.tar.gz` | nothing here - the AUR package builds from source; the tarball is for manual installs |
-| `hack-the-gibson-macos-universal.tar.gz` | nothing here |
-| `hack-the-gibson-web.zip` | nothing here |
+| `gibson-screensaver-linux-x86_64.tar.gz` | nothing here - the AUR package builds from source; the tarball is for manual installs |
+| `gibson-screensaver-macos-universal.tar.gz` | nothing here |
+| `gibson-screensaver-web.zip` | nothing here |
 | `SHA256SUMS` | the hash source for the Scoop and Homebrew manifests |
 
 The AUR package deliberately builds from the **tag tarball**
 (`.../archive/refs/tags/2.0.3.tar.gz`), not from
-`hack-the-gibson-linux-x86_64.tar.gz`. That is what lets it take the bare name
-`hack-the-gibson` instead of `hack-the-gibson-bin`: the AUR reserves `-bin` for
+`gibson-screensaver-linux-x86_64.tar.gz`. That is what lets it take the bare name
+`gibson-screensaver` instead of `gibson-screensaver-bin`: the AUR reserves `-bin` for
 packages whose sources are not available, and here they are.
 
 ## Channels pursued, and the order to do them in
@@ -99,7 +99,7 @@ a screenshot link. The project belongs under **Sci-Fi**:
 
 Free (Open Source)
 
-[![](screenshots/the-gibson.png)](https://github.com/paulkiernan/hack-the-gibson)
+[![](screenshots/the-gibson.png)](https://github.com/paulkiernan/gibson-screensaver)
 ```
 
 The screenshot has to be committed to that repository, resized to 1000px wide as
@@ -120,8 +120,8 @@ disclosure as above so the reviewer is not surprised by a Gatekeeper warning.
 | --- | --- | --- |
 | `aur/PKGBUILD` | `bash -n` parses; the source URL, tag and tarball top-level directory were verified by downloading it; every `depends` entry was traced to a dlopen site in the pinned crate versions and to that package's file list on archlinux.org | a build in a clean chroot (`extra-x86_64-build`), `namcap`, and `updpkgsums` to replace the placeholder `sha256sums` |
 | `aur/README.md` | the SSH/push flow, `.SRCINFO` and chroot commands are quoted from the AUR and devtools documentation; the AUR RPC confirms all three candidate package names are unclaimed | first real push, and a first user's report |
-| `scoop/hack-the-gibson.json` | `python3 -m json.tool` parses; version, asset name and SHA256 match the release's `SHA256SUMS`; the asset is a PE32+ GUI x86-64 binary | any execution at all on Windows: `scoop install`, `scoop uninstall`, `checkver -u` |
-| `homebrew/hack-the-gibson.rb` | `ruby -c` passes; version, asset name and SHA256 match the release; the zip contains exactly one top-level entry, `Gibson.saver`; `CFBundleName`/`LSMinimumSystemVersion` read from `platform/macos/Info.plist` | a real `brew install --cask` from the tap, on a Mac where the saver can then be selected |
+| `scoop/gibson-screensaver.json` | `python3 -m json.tool` parses; version, asset name and SHA256 match the release's `SHA256SUMS`; the asset is a PE32+ GUI x86-64 binary | any execution at all on Windows: `scoop install`, `scoop uninstall`, `checkver -u` |
+| `homebrew/gibson-screensaver.rb` | `ruby -c` passes; version, asset name and SHA256 match the release; the zip contains exactly one top-level entry, `Gibson.saver`; `CFBundleName`/`LSMinimumSystemVersion` read from `platform/macos/Info.plist` | a real `brew install --cask` from the tap, on a Mac where the saver can then be selected |
 | `packaging/README.md` | the asset list matches `RELEASE_ASSETS` in `.github/workflows/release.yml`; the tag and digests match the published release | nothing |
 
 Nothing in this directory can be built or installed on the machine it was
@@ -143,7 +143,7 @@ updpkgsums
 makepkg --printsrcinfo > .SRCINFO
 
 # Scoop (on Windows, in the bucket clone)
-.\bin\checkver.ps1 hack-the-gibson -u
+.\bin\checkver.ps1 gibson-screensaver -u
 
 # Homebrew cask: bump version and sha256 together, sha256 from the release's SHA256SUMS
 ```

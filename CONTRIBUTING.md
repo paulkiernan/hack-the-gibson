@@ -11,8 +11,8 @@ request against it is welcome.
 ## Fastest path to pixels
 
 ```sh
-git clone https://github.com/paulkiernan/hack-the-gibson
-cd hack-the-gibson
+git clone https://github.com/paulkiernan/gibson-screensaver
+cd gibson-screensaver
 cargo run --release -p gibson-app
 ```
 
@@ -89,7 +89,7 @@ cargo run --release -p gibson-app -- --help          # the full flag list
 RUST_LOG=info cargo run --release -p gibson-app      # logs to stderr
 ```
 
-Settings are read from `<config-dir>/hack-the-gibson/gibson.toml`
+Settings are read from `<config-dir>/gibson-screensaver/gibson.toml`
 (`~/Library/Application Support` on macOS, `~/.config` on Linux, `%APPDATA%` on
 Windows), which is written with defaults and comments on first run. Command-line
 flags override the file; every value is clamped on load, so a bad number cannot
@@ -524,7 +524,7 @@ Honest gaps, roughly in order of how much a report or a fix would help:
 - **Security issues**: do not open a public issue - see
   [SECURITY.md](SECURITY.md) for what is in scope and how to report privately.
 - **Everything else**: there is no discussion forum or chat; issues are the
-  channel, and the [live demo](https://paulkiernan.github.io/hack-the-gibson/)
+  channel, and the [live demo](https://paulkiernan.github.io/gibson-screensaver/)
   is the quickest way to see the current state without building anything.
 
 All participation is covered by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

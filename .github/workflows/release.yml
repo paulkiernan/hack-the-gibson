@@ -231,10 +231,10 @@ jobs:
           | Asset | Platform | How to use it |
           | --- | --- | --- |
           | `Gibson.saver.zip` | macOS 14+ | Screen saver, universal (Apple silicon + Intel). Unzip it, copy the bundle to `~/Library/Screen Savers/`, then clear its quarantine flag - see below. |
-          | `hack-the-gibson-macos-universal.tar.gz` | macOS 14+ | Windowed desktop app, universal. Untar it and run `hack-the-gibson-macos-universal/gibson-app`. |
+          | `gibson-screensaver-macos-universal.tar.gz` | macOS 14+ | Windowed desktop app, universal. Untar it and run `gibson-screensaver-macos-universal/gibson-app`. |
           | `Gibson.scr` | Windows | Screen saver. Save it, then right-click it and choose Install. |
-          | `hack-the-gibson-linux-x86_64.tar.gz` | Linux x86_64 | Desktop app, plus the xscreensaver hack with its `hack-the-gibson.xml` descriptor. See `README.txt` inside. |
-          | `hack-the-gibson-web.zip` | any modern browser | Static WebGPU/WebGL2 build for self-hosting. Serve the directory over HTTP. |
+          | `gibson-screensaver-linux-x86_64.tar.gz` | Linux x86_64 | Desktop app, plus the xscreensaver hack with its `gibson-screensaver.xml` descriptor. See `README.txt` inside. |
+          | `gibson-screensaver-web.zip` | any modern browser | Static WebGPU/WebGL2 build for self-hosting. Serve the directory over HTTP. |
 
           Check the download before running anything:
 
@@ -264,7 +264,7 @@ jobs:
           app, clear the flag on the extracted binary before the first run:
 
           ```sh
-          xattr -d com.apple.quarantine hack-the-gibson-macos-universal/gibson-app
+          xattr -d com.apple.quarantine gibson-screensaver-macos-universal/gibson-app
           ```
 
           Clearing the attribute does not affect the code signature.
@@ -348,7 +348,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stage=dist/hack-the-gibson-macos-universal
+          stage=dist/gibson-screensaver-macos-universal
           mkdir -p "$stage"
           lipo -create \
             target/aarch64-apple-darwin/release/gibson-app \
@@ -390,13 +390,13 @@ jobs:
           Clearing the attribute does not affect the code signature.
 
           Settings live in
-            ~/Library/Application Support/hack-the-gibson/gibson.toml
+            ~/Library/Application Support/gibson-screensaver/gibson.toml
           which is written with defaults and comments on first run.
 
           Licensed GPL-3.0-or-later; see LICENSE.
           EOF
-          tar -czf dist/hack-the-gibson-macos-universal.tar.gz -C dist hack-the-gibson-macos-universal
-          tar -tzf dist/hack-the-gibson-macos-universal.tar.gz
+          tar -czf dist/gibson-screensaver-macos-universal.tar.gz -C dist gibson-screensaver-macos-universal
+          tar -tzf dist/gibson-screensaver-macos-universal.tar.gz
       - name: Upload to the draft release
         if: needs.create-release.result == 'success'
         shell: bash
@@ -404,7 +404,7 @@ jobs:
           set -euo pipefail
           gh release upload "$TAG" \
             dist/Gibson.saver.zip \
-            dist/hack-the-gibson-macos-universal.tar.gz \
+            dist/gibson-screensaver-macos-universal.tar.gz \
             --clobber
 
   build-windows:
@@ -467,26 +467,26 @@ jobs:
       # Build only; see the note in build-windows.
       - name: Build the desktop app
         run: cargo build --release -p gibson-app
-      # hack-the-gibson.xml is the xscreensaver descriptor and is useless
+      # gibson-screensaver.xml is the xscreensaver descriptor and is useless
       # without the binary, so the two ship together. The basename is
       # load-bearing: xscreensaver-settings looks the descriptor up as
       # <config-dir>/<basename of the installed program>.xml, so the README
-      # tells the user to install the binary as `hack-the-gibson` and this
-      # file as hack-the-gibson.xml.
+      # tells the user to install the binary as `gibson-screensaver` and this
+      # file as gibson-screensaver.xml.
       - name: Package the desktop app
         shell: bash
         run: |
           set -euo pipefail
-          stage=dist/hack-the-gibson-linux-x86_64
+          stage=dist/gibson-screensaver-linux-x86_64
           mkdir -p "$stage"
           install -m 755 target/release/gibson-app "$stage/gibson-app"
-          cp platform/linux/hack-the-gibson.xml "$stage/hack-the-gibson.xml"
+          cp platform/linux/gibson-screensaver.xml "$stage/gibson-screensaver.xml"
           cat > "$stage/README.txt" <<'EOF'
           Hack the Gibson - Linux x86_64 desktop app and xscreensaver hack
           =================================================================
 
           Binary:      gibson-app (x86_64, dynamically linked against libc)
-          Descriptor:  hack-the-gibson.xml (options for the xscreensaver
+          Descriptor:  gibson-screensaver.xml (options for the xscreensaver
                        settings dialog). It is not named `gibson`: xscreensaver
                        ships its own unrelated gibson hack with those same
                        filenames, and xscreensaver-settings finds a descriptor
@@ -500,16 +500,16 @@ jobs:
 
           xscreensaver hack:
 
-            # The binary's basename has to be hack-the-gibson, so that it
+            # The binary's basename has to be gibson-screensaver, so that it
             # matches the descriptor:
-            install -m 755 gibson-app ~/.local/bin/hack-the-gibson
-            sudo cp hack-the-gibson.xml /usr/share/xscreensaver/config/
-            # then add to ~/.xscreensaver:  programs: hack-the-gibson
+            install -m 755 gibson-app ~/.local/bin/gibson-screensaver
+            sudo cp gibson-screensaver.xml /usr/share/xscreensaver/config/
+            # then add to ~/.xscreensaver:  programs: gibson-screensaver
             # No arguments: xscreensaver passes the window in
             # $XSCREENSAVER_WINDOW, and its settings dialog appends
             # --window-id itself when it builds the preview command.
 
-          Settings are read from ~/.config/hack-the-gibson/gibson.toml, which is
+          Settings are read from ~/.config/gibson-screensaver/gibson.toml, which is
           written with defaults and comments on first run. Anything on the
           command line overrides the file.
 
@@ -520,14 +520,14 @@ jobs:
           Smoke-tested in CI under Xvfb with a software Vulkan rasteriser; not
           verified on real hardware with a real GPU. Licensed GPL-3.0-or-later.
           EOF
-          tar -czf dist/hack-the-gibson-linux-x86_64.tar.gz -C dist hack-the-gibson-linux-x86_64
-          tar -tzf dist/hack-the-gibson-linux-x86_64.tar.gz
+          tar -czf dist/gibson-screensaver-linux-x86_64.tar.gz -C dist gibson-screensaver-linux-x86_64
+          tar -tzf dist/gibson-screensaver-linux-x86_64.tar.gz
       - name: Upload to the draft release
         if: needs.create-release.result == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "$TAG" dist/hack-the-gibson-linux-x86_64.tar.gz --clobber
+          gh release upload "$TAG" dist/gibson-screensaver-linux-x86_64.tar.gz --clobber
 
   build-web:
     name: Web bundle
@@ -565,14 +565,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          zip -rq dist/hack-the-gibson-web.zip web
-          unzip -l dist/hack-the-gibson-web.zip
+          zip -rq dist/gibson-screensaver-web.zip web
+          unzip -l dist/gibson-screensaver-web.zip
       - name: Upload to the draft release
         if: needs.create-release.result == 'success'
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "$TAG" dist/hack-the-gibson-web.zip --clobber
+          gh release upload "$TAG" dist/gibson-screensaver-web.zip --clobber
 
   # Checksums are computed over the assets as they were uploaded, so the file
   # describes exactly the bytes GitHub serves. Publishing is the last step, after
@@ -589,7 +589,7 @@ jobs:
       TAG: ${{ needs.guard.outputs.tag }}
       # Single source of truth for the five contract asset names, used by both
       # the download and the checksum step below.
-      RELEASE_ASSETS: Gibson.saver.zip Gibson.scr hack-the-gibson-macos-universal.tar.gz hack-the-gibson-linux-x86_64.tar.gz hack-the-gibson-web.zip
+      RELEASE_ASSETS: Gibson.saver.zip Gibson.scr gibson-screensaver-macos-universal.tar.gz gibson-screensaver-linux-x86_64.tar.gz gibson-screensaver-web.zip
     steps:
       # Download and validation are one step so that a failure always names the
       # asset it is complaining about and shows what the release actually

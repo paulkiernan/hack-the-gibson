@@ -64,7 +64,7 @@ pub struct Cli {
     #[arg(long, value_name = "SECS", default_value_t = 12.0)]
     pub time: f64,
 
-    /// Config file path (default: <config dir>/hack-the-gibson/gibson.toml).
+    /// Config file path (default: <config dir>/gibson-screensaver/gibson.toml).
     #[arg(long, value_name = "PATH")]
     pub config: Option<PathBuf>,
 

@@ -8,7 +8,7 @@ body:
       value: |
         Ideas are welcome. Two things shape what can be accepted here: the film
         is the specification for how the Gibson looks (see
-        [docs/film-reference.md](https://github.com/paulkiernan/hack-the-gibson/blob/main/docs/film-reference.md)),
+        [docs/film-reference.md](https://github.com/paulkiernan/gibson-screensaver/blob/main/docs/film-reference.md)),
         and every host has to keep working - the web build in particular runs
         inside a WebGL2 envelope that rules out storage buffers, compute
         shaders, and several other modern features.

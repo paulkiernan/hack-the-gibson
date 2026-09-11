@@ -1,28 +1,28 @@
-# AUR: `hack-the-gibson`
+# AUR: `gibson-screensaver`
 
 `PKGBUILD` here builds the project from the GitHub tag tarball and installs
 
 | Path | What |
 | --- | --- |
-| `/usr/bin/hack-the-gibson` | the binary (built as `gibson-app`) |
-| `/usr/share/xscreensaver/config/hack-the-gibson.xml` | the xscreensaver descriptor |
-| `/usr/share/licenses/hack-the-gibson/LICENSE` | GPL-3.0-or-later |
-| `/usr/share/doc/hack-the-gibson/README.md` | project README |
-| `/usr/share/doc/hack-the-gibson/xscreensaver-host.md` | how the xscreensaver host works |
+| `/usr/bin/gibson-screensaver` | the binary (built as `gibson-app`) |
+| `/usr/share/xscreensaver/config/gibson-screensaver.xml` | the xscreensaver descriptor |
+| `/usr/share/licenses/gibson-screensaver/LICENSE` | GPL-3.0-or-later |
+| `/usr/share/doc/gibson-screensaver/README.md` | project README |
+| `/usr/share/doc/gibson-screensaver/xscreensaver-host.md` | how the xscreensaver host works |
 
-## Package name: `hack-the-gibson`, not `-bin`, not `-git`
+## Package name: `gibson-screensaver`, not `-bin`, not `-git`
 
 A package built from tagged sources takes the bare name. `-bin` is only for a
 package that repackages a prebuilt binary (the AUR requires the suffix whenever
 the sources are available, which they are), and `-git` is for a rolling build
-from a branch. So the submission is `hack-the-gibson`.
+from a branch. So the submission is `gibson-screensaver`.
 
 Checked at the time of writing: the AUR RPC reports zero results for
-`hack-the-gibson`, `hack-the-gibson-bin` and `hack-the-gibson-git`, so none of
+`gibson-screensaver`, `gibson-screensaver-bin` and `gibson-screensaver-git`, so none of
 these names is taken:
 
 ```sh
-curl -sS 'https://aur.archlinux.org/rpc/v5/info?arg[]=hack-the-gibson' | python3 -m json.tool
+curl -sS 'https://aur.archlinux.org/rpc/v5/info?arg[]=gibson-screensaver' | python3 -m json.tool
 ```
 
 ## One-time setup
@@ -55,13 +55,13 @@ curl -sS 'https://aur.archlinux.org/rpc/v5/info?arg[]=hack-the-gibson' | python3
 ## First submission
 
 ```sh
-git clone ssh://aur@aur.archlinux.org/hack-the-gibson.git
-cd hack-the-gibson
+git clone ssh://aur@aur.archlinux.org/gibson-screensaver.git
+cd gibson-screensaver
 cp /path/to/packaging/aur/PKGBUILD .
 updpkgsums                       # fills in the placeholder sha256sums entry
 makepkg --printsrcinfo > .SRCINFO
 git add PKGBUILD .SRCINFO
-git commit -m 'Initial import: hack-the-gibson 2.0.3-1'
+git commit -m 'Initial import: gibson-screensaver 2.0.3-1'
 git push
 ```
 
@@ -81,7 +81,7 @@ whenever the `PKGBUILD` changes anything that appears in it - `pkgver`, `pkgrel`
 # edit pkgver= (and reset pkgrel=1)
 updpkgsums
 makepkg --printsrcinfo > .SRCINFO
-git commit -am 'upgpkg: hack-the-gibson 2.0.4-1'
+git commit -am 'upgpkg: gibson-screensaver 2.0.4-1'
 git push
 ```
 
@@ -103,7 +103,7 @@ extra-x86_64-build
 
 # lint the recipe and the result
 namcap PKGBUILD
-namcap hack-the-gibson-2.0.3-1-x86_64.pkg.tar.zst
+namcap gibson-screensaver-2.0.3-1-x86_64.pkg.tar.zst
 ```
 
 `extra-x86_64-build` is the devtools wrapper: it sets up and updates a chroot
@@ -118,17 +118,17 @@ Read namcap's output rather than skimming it. The entries that matter here:
   it uses and namcap can only see linked ones;
 - anything reported as **unneeded** - an entry that should move to `optdepends`;
 - file conflicts with `xscreensaver`, which would mean the load-bearing
-  `hack-the-gibson` naming has been broken somewhere.
+  `gibson-screensaver` naming has been broken somewhere.
 
 Then install it in a throwaway VM or container and check the pieces by hand:
 
 ```sh
-pacman -Ql hack-the-gibson                  # the five paths above, nothing extra
-command -v hack-the-gibson                  # /usr/bin/hack-the-gibson
-pacman -Qo /usr/share/xscreensaver/config/hack-the-gibson.xml
-hack-the-gibson --help
+pacman -Ql gibson-screensaver                  # the five paths above, nothing extra
+command -v gibson-screensaver                  # /usr/bin/gibson-screensaver
+pacman -Qo /usr/share/xscreensaver/config/gibson-screensaver.xml
+gibson-screensaver --help
 # the repository's own host smoke test, against the installed binary
-bash /path/to/repo/platform/linux/smoke-test.sh /usr/bin/hack-the-gibson
+bash /path/to/repo/platform/linux/smoke-test.sh /usr/bin/gibson-screensaver
 ```
 
 ## What users have to do after installing
@@ -137,7 +137,7 @@ Installing the package does not turn the screensaver on. The user adds one line
 to `~/.xscreensaver`:
 
 ```
-programs: hack-the-gibson
+programs: gibson-screensaver
 ```
 
 No arguments, and in particular no `-root`. Two reasons, both from how
@@ -160,7 +160,7 @@ standalone desktop app and xscreensaver is X11-only. On a Wayland session the
 supported route is the fullscreen mode under `swayidle`:
 
 ```sh
-swayidle -w timeout 600 'hack-the-gibson --fullscreen' resume 'pkill hack-the-gibson'
+swayidle -w timeout 600 'gibson-screensaver --fullscreen' resume 'pkill gibson-screensaver'
 ```
 
 ## What is verified and what is not
@@ -169,7 +169,7 @@ Verified from this machine (macOS) with no Arch available:
 
 - `bash -n packaging/aur/PKGBUILD` parses.
 - The `source` URL, the tag `2.0.3`, and the tarball's top-level directory
-  `hack-the-gibson-2.0.3` were checked by downloading the tarball, so
+  `gibson-screensaver-2.0.3` were checked by downloading the tarball, so
   `cd "$pkgname-$pkgver"` is correct.
 - The `depends` set: see the header comment in the `PKGBUILD` for how each entry
   was traced. Package names were checked against the live
