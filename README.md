@@ -81,11 +81,55 @@ covers every asset in the release, so if you fetched only some of them, add
 assets you did not download are skipped instead of reported as `FAILED open
 or read`.
 
+### Package managers
+
+| Host | Channel | Status |
+| --- | --- | --- |
+| macOS | Homebrew cask, from a personal tap | available — see below |
+| Arch Linux | AUR (`gibson-screensaver`, `gibson-screensaver-bin`) | prepared, not yet submitted |
+| Windows | Scoop | prepared, not yet submitted |
+
+The two unsubmitted manifests are complete and pinned to this release's real
+digests — they live in [`packaging/`](packaging/) and each carries a runbook.
+They are not published yet because submitting them needs account credentials
+rather than code, so until then use the per-host steps below.
+
 ### macOS screen saver
 
-Requires macOS 14 or later. Either build it yourself (see
-[Building](#building)), or download `Gibson.saver.zip` (universal — Apple
-silicon and Intel) and `SHA256SUMS` from the
+Requires macOS 14 or later.
+
+**Homebrew** is the shortest path, and gives you a real uninstall:
+
+```bash
+brew tap paulkiernan/tap
+brew trust paulkiernan/tap
+brew install --cask gibson-screensaver
+
+# The download is quarantined; see the Gatekeeper note below.
+xattr -dr com.apple.quarantine "$HOME/Library/Screen Savers/Gibson.saver"
+killall legacyScreenSaver 2>/dev/null || true
+```
+
+`brew trust` is required by Homebrew 6, which refuses to load casks from
+unofficial taps until you trust them once (`brew install` tells you so and
+names the command). Earlier Homebrew versions have no `brew trust` and no
+trust step — skip that line if it errors as an unknown command.
+
+The cask installs the same bundle this page describes, from the same release
+asset, pinned to its SHA256 — so Homebrew does the download-and-verify for
+you. It does **not** avoid the quarantine step: the flag is applied because
+the bytes came from the internet, whichever tool fetched them. `brew
+uninstall --cask gibson-screensaver` removes the bundle cleanly.
+
+The cask is in a personal tap rather than `homebrew/cask` because a cask
+there must pass Gatekeeper, which needs Apple notarization this project has
+no Developer ID for; a self-submission would also have to clear Homebrew's
+notability thresholds. See
+[packaging/homebrew/README.md](packaging/homebrew/README.md).
+
+Otherwise build it yourself (see [Building](#building)), or install by hand —
+download `Gibson.saver.zip` (universal — Apple silicon and Intel) and
+`SHA256SUMS` from the
 [Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest).
 
 ```bash
@@ -146,6 +190,20 @@ working by the maintainer, in addition to being built and tested in CI on
 every push.
 
 ### Linux xscreensaver
+
+**Arch Linux:** two AUR packages are written and pinned —
+`gibson-screensaver` builds from the release tag, and
+`gibson-screensaver-bin` unpacks the prebuilt tarball. **Neither is submitted
+to the AUR yet**, so `paru -S gibson-screensaver` will not find anything
+today; publishing them needs an AUR account and SSH key rather than more
+code. The `PKGBUILD`s, `.SRCINFO` files and the submission runbook are in
+[`packaging/aur/`](packaging/aur/) and
+[`packaging/aur-bin/`](packaging/aur-bin/), and can be built locally right
+now with `makepkg -si` from either directory. Both install the binary as
+`/usr/bin/gibson-screensaver` and the descriptor as
+`/usr/share/xscreensaver/config/gibson-screensaver.xml` — system paths, rather
+than the per-user ones the manual steps below use — and neither adds the
+`programs:` line for you, so that last step is the same either way.
 
 `gibson-app` doubles as an xscreensaver "external window" hack. The
 `gibson-screensaver-linux-x86_64.tar.gz` asset on the
