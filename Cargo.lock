@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-app"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "clap",
  "dirs",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-atlas"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "fontdue",
  "gibson-types",
@@ -786,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-core"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "gibson-atlas",
  "gibson-floor",
@@ -801,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-ffi"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "gibson-core",
  "gibson-types",
@@ -814,7 +814,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-floor"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "gibson-types",
  "rand",
@@ -822,7 +822,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-render"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "bytemuck",
  "gibson-atlas",
@@ -838,7 +838,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-scene"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "gibson-types",
  "glam",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-types"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "bytemuck",
  "serde",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "gibson-web"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
