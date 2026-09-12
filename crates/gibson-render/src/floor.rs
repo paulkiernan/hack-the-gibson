@@ -1,8 +1,8 @@
 //! PCB floor quad pass.
 
 use crate::targets::depth_color_target;
+use crate::util::GpuCensus;
 use crate::{shaders, RenderError};
-use wgpu::util::DeviceExt;
 
 /// A floor corner is a world-space (x, z) pair at y = 0.
 #[repr(C)]
@@ -35,6 +35,7 @@ impl Floor {
         layout: &wgpu::PipelineLayout,
         color_format: wgpu::TextureFormat,
         depth_format: wgpu::TextureFormat,
+        census: &mut GpuCensus,
     ) -> Result<Floor, RenderError> {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gibson-floor-shader"),
@@ -74,12 +75,15 @@ impl Floor {
             multiview_mask: None,
             cache: None,
         });
-        let geometry = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gibson-floor-quad"),
-            size: 48, // two triangles, six vec2 corners
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let geometry = census.create_buffer(
+            device,
+            &wgpu::BufferDescriptor {
+                label: Some("gibson-floor-quad"),
+                size: 48, // two triangles, six vec2 corners
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        );
         Ok(Floor {
             pipeline,
             geometry,
@@ -89,7 +93,13 @@ impl Floor {
     }
 
     /// Rebuild the quad corners if the grid changed (extent = grid * 15 + 600).
-    pub fn ensure_grid(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, grid: f32) {
+    pub fn ensure_grid(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        grid: f32,
+        census: &mut GpuCensus,
+    ) {
         if (self.grid - grid).abs() < 0.5 && self.grid > 0.0 {
             return;
         }
@@ -106,11 +116,14 @@ impl Floor {
         let bytes: &[u8] = bytemuck::cast_slice(&corners);
         // Recreate (strides/sizes fixed) or simply write.
         if self.geometry.size() < bytes.len() as u64 {
-            let geo = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("gibson-floor-quad"),
-                contents: bytes,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
+            let geo = census.create_buffer_init(
+                device,
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("gibson-floor-quad"),
+                    contents: bytes,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                },
+            );
             self.geometry = geo;
         } else {
             queue.write_buffer(&self.geometry, 0, bytes);

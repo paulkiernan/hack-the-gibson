@@ -222,9 +222,18 @@ impl Gibson {
 
     /// `(skipped_timeout, skipped_occluded)`: why frames the host asked for were
     /// not presented. `Timeout` = the drawable pool was starved (GPU/host
-    /// behind); `Occluded` = the surface's layer/window was not displayable.
+    /// behind). `Occluded` = the surface's layer/window was not displayable.
     pub fn skip_breakdown(&self) -> (u64, u64) {
         self.renderer.skip_breakdown()
+    }
+
+    /// GPU resources the renderer has created since process start, with their byte sizes.
+    ///
+    /// A host that wants to prove an engine is not accumulating GPU memory samples this across
+    /// a long run: the totals stop moving once startup is done, and stay put across resizes, so
+    /// any growth is a per-frame allocation. See [`gibson_render::GpuCensus`].
+    pub fn gpu_census(&self) -> gibson_render::GpuCensus {
+        self.renderer.gpu_census()
     }
 
     /// Replace the settings (clamped). Batch 2 may also want to push them into the scene.

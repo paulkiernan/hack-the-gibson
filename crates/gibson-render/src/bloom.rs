@@ -4,6 +4,7 @@
 use crate::profile::Profile;
 use crate::shaders;
 use crate::targets::HDR_FORMAT;
+use crate::util::{self, GpuCensus};
 
 /// Chain length: levels at 1/2, 1/4, 1/8, 1/16, 1/32 of the render resolution.
 pub const LEVELS: usize = 5;
@@ -60,8 +61,16 @@ fn additive_blend() -> wgpu::BlendState {
     }
 }
 
+/// The GPU handles `Bloom::rebuild` binds. They always travel together, and
+/// grouping them keeps the argument count inside the workspace lint budget.
+pub struct BloomInputs<'a> {
+    pub uniform: &'a wgpu::Buffer,
+    pub sampler: &'a wgpu::Sampler,
+    pub src_view: &'a wgpu::TextureView,
+}
+
 impl Bloom {
-    pub fn new(device: &wgpu::Device) -> Bloom {
+    pub fn new(device: &wgpu::Device, census: &mut GpuCensus) -> Bloom {
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gibson-bloom-bgl"),
             entries: &[
@@ -124,7 +133,7 @@ impl Bloom {
             prefilter,
             down,
             up,
-            tri: crate::util::fs_triangle(device, "gibson-bloom-tri"),
+            tri: util::fs_triangle(device, "gibson-bloom-tri", census),
             levels: Vec::new(),
             input_bgs: Vec::new(),
             prefilter_bg: None,
@@ -134,14 +143,16 @@ impl Bloom {
     }
 
     /// Recreate the level textures and their bind groups for a new render size.
+    ///
+    /// `width`/`height` are already-scaled render pixels, not a `Viewport`: the
+    /// bloom chain never applies the render scale itself.
     pub fn rebuild(
         &mut self,
         device: &wgpu::Device,
         width: u32,
         height: u32,
-        uniform: &wgpu::Buffer,
-        sampler: &wgpu::Sampler,
-        src_view: &wgpu::TextureView,
+        inputs: BloomInputs<'_>,
+        census: &mut GpuCensus,
     ) {
         self.width = width;
         self.height = height;
@@ -149,31 +160,44 @@ impl Bloom {
         for i in 0..LEVELS {
             let w = (width >> (i + 1)).max(1);
             let h = (height >> (i + 1)).max(1);
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("gibson-bloom-level"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
+            let texture = census.create_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("gibson-bloom-level"),
+                    size: wgpu::Extent3d {
+                        width: w,
+                        height: h,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: HDR_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: HDR_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
+            );
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             levels.push(Level { texture, view });
         }
         let mut input_bgs = Vec::with_capacity(LEVELS);
         for lvl in &levels {
             input_bgs.push(make_input_bg(
-                device, &self.bgl, uniform, &lvl.view, sampler,
+                device,
+                &self.bgl,
+                inputs.uniform,
+                &lvl.view,
+                inputs.sampler,
             ));
         }
-        let prefilter_bg = make_input_bg(device, &self.bgl, uniform, src_view, sampler);
+        let prefilter_bg = make_input_bg(
+            device,
+            &self.bgl,
+            inputs.uniform,
+            inputs.src_view,
+            inputs.sampler,
+        );
         self.levels = levels;
         self.input_bgs = input_bgs;
         self.prefilter_bg = Some(prefilter_bg);

@@ -1,9 +1,9 @@
 //! Instanced translucent tower boxes.
 
+use crate::util::GpuCensus;
 use crate::{shaders, RenderError};
 use bytemuck::{Pod, Zeroable};
 use gibson_types::TowerInstance;
-use wgpu::util::DeviceExt;
 
 /// Per-vertex geometry data (static box; instancing adds the per-tower data).
 #[repr(C)]
@@ -189,6 +189,7 @@ impl Towers {
         layout: &wgpu::PipelineLayout,
         color_format: wgpu::TextureFormat,
         depth_format: wgpu::TextureFormat,
+        census: &mut GpuCensus,
     ) -> Result<Towers, RenderError> {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gibson-towers-shader"),
@@ -242,17 +243,23 @@ impl Towers {
         });
         let box_verts = build_box();
         let geometry_bytes = bytemuck::cast_slice(&box_verts);
-        let geometry = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("gibson-tower-box"),
-            contents: geometry_bytes,
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let instance = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gibson-tower-instances"),
-            size: 4, // replaced on first upload
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let geometry = census.create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("gibson-tower-box"),
+                contents: geometry_bytes,
+                usage: wgpu::BufferUsages::VERTEX,
+            },
+        );
+        let instance = census.create_buffer(
+            device,
+            &wgpu::BufferDescriptor {
+                label: Some("gibson-tower-instances"),
+                size: 4, // replaced on first upload
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        );
         Ok(Towers {
             pipeline,
             geometry,
@@ -262,19 +269,28 @@ impl Towers {
     }
 
     /// Grow (recreate) or refresh the instance buffer for this frame's tower list.
-    pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, towers: &[TowerInstance]) {
+    pub fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        towers: &[TowerInstance],
+        census: &mut GpuCensus,
+    ) {
         let count = towers.len() as u32;
         if count == 0 {
             return;
         }
         if count > self.capacity {
             let capacity = count.next_power_of_two().max(256);
-            self.instance = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("gibson-tower-instances"),
-                size: capacity as u64 * std::mem::size_of::<TowerInstance>() as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            self.instance = census.create_buffer(
+                device,
+                &wgpu::BufferDescriptor {
+                    label: Some("gibson-tower-instances"),
+                    size: capacity as u64 * std::mem::size_of::<TowerInstance>() as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                },
+            );
             self.capacity = capacity;
         }
         queue.write_buffer(&self.instance, 0, bytemuck::cast_slice(towers));

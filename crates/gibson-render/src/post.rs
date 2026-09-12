@@ -6,7 +6,7 @@
 
 use crate::shaders;
 use crate::targets::HDR_FORMAT;
-use crate::util::{fs_triangle, FS_VERTEX_LAYOUT};
+use crate::util::{self, GpuCensus, FS_VERTEX_LAYOUT};
 use std::collections::HashMap;
 
 pub struct Post {
@@ -60,7 +60,7 @@ fn sampler_binding(binding: u32, visibility: wgpu::ShaderStages) -> wgpu::BindGr
 }
 
 impl Post {
-    pub fn new(device: &wgpu::Device) -> Post {
+    pub fn new(device: &wgpu::Device, census: &mut GpuCensus) -> Post {
         let motion_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gibson-motion-bgl"),
             entries: &[
@@ -100,7 +100,7 @@ impl Post {
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
-        let tri = fs_triangle(device, "gibson-post-tri");
+        let tri = util::fs_triangle(device, "gibson-post-tri", census);
 
         // The CRT pass reads the signal buffer with explicit `textureLoad`s (nearest by
         // construction), so its bind group is just the uniform plus the texture.

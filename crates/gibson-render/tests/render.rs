@@ -356,6 +356,84 @@ fn offscreen_renders_do_not_touch_present_counters() {
     );
 }
 
+/// Offscreen frames reuse one target and one staging buffer: the steady state allocates no GPU
+/// resources at all. The snapshot host renders one offscreen frame per simulated 1/60 s step,
+/// so this is the difference between ~11 MiB allocated (and freed) per frame and none -- and
+/// the difference between a flat and a runaway GPU resource census in a long run.
+#[test]
+fn offscreen_frames_allocate_nothing_after_the_first() {
+    let s = settings();
+    let mut r = match renderer_at(320, 240, 1.0, &s) {
+        Some(r) => r,
+        None => return,
+    };
+    let pose = camera([0.0, 20.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]);
+    let frame = empty_frame(1.0, pose, &s, &[], &[]);
+
+    let before_warmup = r.gpu_census();
+    let _ = r.render_to_rgba(&frame).expect("first offscreen render");
+    let warm = r.gpu_census();
+    assert!(
+        warm.textures > before_warmup.textures && warm.buffers > before_warmup.buffers,
+        "the first offscreen frame must build its own target and staging buffer \
+         ({before_warmup} -> {warm})"
+    );
+
+    for i in 0..8 {
+        let (w, h, rgba) = r
+            .render_to_rgba(&frame)
+            .expect("steady-state offscreen render");
+        assert_eq!((w, h, rgba.len()), (320, 240, 320 * 240 * 4));
+        assert_eq!(
+            r.gpu_census(),
+            warm,
+            "offscreen frame {i} changed the GPU resource census ({warm} -> {})",
+            r.gpu_census()
+        );
+    }
+}
+
+/// `resize` is idempotent: re-asserting the size a renderer is already at must not rebuild the
+/// target set (the HDR targets, the bloom chain, the view bind groups). Hosts assert their size
+/// on layout and backing-scale notifications, not only when it changes, and a rebuild there is
+/// ~100 MiB of texture churn per call -- indistinguishable in a census from a real leak.
+#[test]
+fn repeated_identical_resizes_allocate_nothing() {
+    let s = settings();
+    let mut r = match renderer_at(320, 240, 1.0, &s) {
+        Some(r) => r,
+        None => return,
+    };
+    let before = r.gpu_census();
+    for _ in 0..8 {
+        r.resize(Viewport {
+            width: 320,
+            height: 240,
+            scale: 1.0,
+        });
+    }
+    assert_eq!(
+        r.gpu_census(),
+        before,
+        "a resize to the current size must not allocate"
+    );
+
+    // ...but a real size change must rebuild, and the offscreen output must follow it.
+    r.resize(Viewport {
+        width: 400,
+        height: 300,
+        scale: 1.0,
+    });
+    assert!(
+        r.gpu_census().textures > before.textures,
+        "a real resize must rebuild the HDR targets"
+    );
+    let pose = camera([0.0, 20.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]);
+    let frame = empty_frame(1.0, pose, &s, &[], &[]);
+    let (w, h, _) = r.render_to_rgba(&frame).expect("render after resize");
+    assert_eq!((w, h), (400, 300));
+}
+
 #[test]
 fn floor_from_above_draws_traces() {
     let s = settings();
@@ -1683,9 +1761,15 @@ fn probe_frame_profile() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.35);
+    // Motion-blur amount, so the depth-carry store can be measured in both states (the carry is
+    // only read by the motion-blur pass, so its store is dead work when this is 0).
+    let motion_blur: f32 = std::env::var("GIBSON_RENDER_MOTION_BLUR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.5);
     let s = Settings {
         bloom: 0.35,
-        motion_blur: 0.5,
+        motion_blur,
         grain: 0.03,
         crt,
         ..settings()

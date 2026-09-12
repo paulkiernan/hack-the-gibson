@@ -1,9 +1,9 @@
 //! Instanced lane-pulse ribbons.
 
+use crate::util::GpuCensus;
 use crate::{shaders, RenderError};
 use bytemuck::{Pod, Zeroable};
 use gibson_types::PulseInstance;
-use wgpu::util::DeviceExt;
 
 /// Static quad vertex: position along the ribbon (0 tail ..= 1 head) and across (-1 ..= 1).
 #[repr(C)]
@@ -74,6 +74,7 @@ impl Pulses {
         layout: &wgpu::PipelineLayout,
         color_format: wgpu::TextureFormat,
         depth_format: wgpu::TextureFormat,
+        census: &mut GpuCensus,
     ) -> Result<Pulses, RenderError> {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gibson-pulses-shader"),
@@ -130,17 +131,23 @@ impl Pulses {
             [1.0, 1.0],
             [0.0, 1.0],
         ];
-        let geometry = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("gibson-pulse-quad"),
-            contents: bytemuck::cast_slice(&verts),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let instance = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gibson-pulse-instances"),
-            size: 4,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let geometry = census.create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("gibson-pulse-quad"),
+                contents: bytemuck::cast_slice(&verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            },
+        );
+        let instance = census.create_buffer(
+            device,
+            &wgpu::BufferDescriptor {
+                label: Some("gibson-pulse-instances"),
+                size: 4,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        );
         Ok(Pulses {
             pipeline,
             geometry,
@@ -149,19 +156,28 @@ impl Pulses {
         })
     }
 
-    pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pulses: &[PulseInstance]) {
+    pub fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        pulses: &[PulseInstance],
+        census: &mut GpuCensus,
+    ) {
         let count = pulses.len() as u32;
         if count == 0 {
             return;
         }
         if count > self.capacity {
             let capacity = count.next_power_of_two().max(256);
-            self.instance = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("gibson-pulse-instances"),
-                size: capacity as u64 * std::mem::size_of::<PulseInstance>() as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            self.instance = census.create_buffer(
+                device,
+                &wgpu::BufferDescriptor {
+                    label: Some("gibson-pulse-instances"),
+                    size: capacity as u64 * std::mem::size_of::<PulseInstance>() as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                },
+            );
             self.capacity = capacity;
         }
         queue.write_buffer(&self.instance, 0, bytemuck::cast_slice(pulses));

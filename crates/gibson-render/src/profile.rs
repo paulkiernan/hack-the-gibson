@@ -6,6 +6,8 @@
 //! timestamp pair (two query slots per pass); [`Profile::read`] resolves them and converts the
 //! ticks to milliseconds so the per-pass cost is visible instead of guessed at.
 
+use crate::util::GpuCensus;
+
 /// Maximum number of timestamp slots (2 per pass; the chain uses well under half of these).
 pub(crate) const MAX_TIMESTAMPS: u32 = 64;
 
@@ -36,40 +38,49 @@ pub(crate) struct Profile {
 
 impl Profile {
     /// Create the query set and readback buffers. `queue` supplies the timestamp period.
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Profile {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, census: &mut GpuCensus) -> Profile {
         let bytes = (MAX_TIMESTAMPS as u64) * 8;
-        let tail_tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gibson-profile-tail"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
+        let tail_tex = census.create_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("gibson-profile-tail"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        );
         Profile {
             query_set: device.create_query_set(&wgpu::QuerySetDescriptor {
                 label: Some("gibson-profile-queries"),
                 ty: wgpu::QueryType::Timestamp,
                 count: MAX_TIMESTAMPS,
             }),
-            resolve: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("gibson-profile-resolve"),
-                size: bytes,
-                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            }),
-            readback: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("gibson-profile-readback"),
-                size: bytes,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            }),
+            resolve: census.create_buffer(
+                device,
+                &wgpu::BufferDescriptor {
+                    label: Some("gibson-profile-resolve"),
+                    size: bytes,
+                    usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                },
+            ),
+            readback: census.create_buffer(
+                device,
+                &wgpu::BufferDescriptor {
+                    label: Some("gibson-profile-readback"),
+                    size: bytes,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                },
+            ),
             tail_view: tail_tex.create_view(&wgpu::TextureViewDescriptor::default()),
             tail_tex,
             period_ns: queue.get_timestamp_period(),

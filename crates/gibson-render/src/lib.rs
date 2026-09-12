@@ -68,7 +68,7 @@ mod towers;
 mod uniforms;
 mod util;
 
-use bloom::Bloom;
+use bloom::{Bloom, BloomInputs};
 use floor::Floor;
 use gibson_types::{AtlasImage, FloorMap, FrameData, Settings};
 use glam::Mat4;
@@ -79,6 +79,9 @@ use targets::{SceneTargets, HDR_FORMAT};
 use towers::Towers;
 use uniforms::{projection_matrix, view_matrix, FrameTargets, FrameUniform};
 use util::pipeline_layout;
+
+/// GPU resource census: what this crate has allocated, and how much (see [`GpuCensus`]).
+pub use util::GpuCensus;
 
 /// Errors surfaced by the renderer.
 #[derive(Debug)]
@@ -162,6 +165,17 @@ pub struct Renderer {
     skipped_timeout: u64,
     skipped_occluded: u64,
 
+    /// Frames rendered through [`Renderer::run_chain`], presented or offscreen.
+    frames: u64,
+    /// GPU resources this renderer has allocated, and the totals as of the last report (so a
+    /// change is logged on the frame it happens).
+    census: GpuCensus,
+    last_census: GpuCensus,
+    /// Cached offscreen composite target + readback buffer, keyed by size
+    /// (`render_to_rgba`, `profile_frame`). Allocated on first offscreen frame and on resize,
+    /// never per frame.
+    offscreen: Option<targets::OffscreenTarget>,
+
     /// GPU timestamp profiling state; `Some` only when `GIBSON_PROFILE` was set in the
     /// environment and the adapter supports `TIMESTAMP_QUERY` (the default device requests
     /// no features, so the WebGL2 envelope is untouched).
@@ -230,6 +244,10 @@ fn scene_size(width: u32, height: u32, crt: f32) -> (u32, u32) {
     )
 }
 
+/// How often (in frames) the GPU resource census is logged even when it has not changed: 600
+/// frames is ~10 s at 60 fps and ~40 s at the 15 fps this renderer sustains at 2.8 Mpx.
+const CENSUS_INTERVAL: u64 = 600;
+
 /// Sampler for the tower text atlas: linear in x/y, clamped.
 fn atlas_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     device.create_sampler(&wgpu::SamplerDescriptor {
@@ -297,21 +315,29 @@ fn scene_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 /// uses `textureLoad`, which always reads level 0.
 const ATLAS_MIPS: u32 = 3;
 
-fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) -> wgpu::Texture {
-    let tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("gibson-atlas"),
-        size: wgpu::Extent3d {
-            width: atlas.width,
-            height: atlas.height,
-            depth_or_array_layers: atlas.layers,
+fn upload_atlas(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    atlas: &AtlasImage,
+    census: &mut GpuCensus,
+) -> wgpu::Texture {
+    let tex = census.create_texture(
+        device,
+        &wgpu::TextureDescriptor {
+            label: Some("gibson-atlas"),
+            size: wgpu::Extent3d {
+                width: atlas.width,
+                height: atlas.height,
+                depth_or_array_layers: atlas.layers,
+            },
+            mip_level_count: ATLAS_MIPS,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         },
-        mip_level_count: ATLAS_MIPS,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
+    );
     let bpr = atlas.width * 4;
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -393,21 +419,29 @@ fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) 
     tex
 }
 
-fn upload_floor(device: &wgpu::Device, queue: &wgpu::Queue, floor: &FloorMap) -> wgpu::Texture {
-    let tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("gibson-floor-map"),
-        size: wgpu::Extent3d {
-            width: floor.cells,
-            height: floor.cells,
-            depth_or_array_layers: 1,
+fn upload_floor(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    floor: &FloorMap,
+    census: &mut GpuCensus,
+) -> wgpu::Texture {
+    let tex = census.create_texture(
+        device,
+        &wgpu::TextureDescriptor {
+            label: Some("gibson-floor-map"),
+            size: wgpu::Extent3d {
+                width: floor.cells,
+                height: floor.cells,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
+    );
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &tex,
@@ -538,7 +572,9 @@ impl Renderer {
             surface_format = Some(format);
         }
         let _ = settings;
-        let profile = want_profile.then(|| profile::Profile::new(&device, &queue));
+        // Every GPU resource this renderer owns is counted as it is built (see [`GpuCensus`]).
+        let mut census = GpuCensus::default();
+        let profile = want_profile.then(|| profile::Profile::new(&device, &queue, &mut census));
         // The scene chain runs at the CRT signal resolution when the tube is on, at the output
         // size when it is off; `settings` decides which for the first frame.
         let crt = settings.crt;
@@ -552,15 +588,18 @@ impl Renderer {
         let scene_layout = pipeline_layout(&device, "gibson-scene-layout", &scene_bgl);
         let atlas_sampler = atlas_sampler(&device);
 
-        let atlas_tex = upload_atlas(&device, &queue, atlas);
-        let floor_tex = upload_floor(&device, &queue, floor);
+        let atlas_tex = upload_atlas(&device, &queue, atlas, &mut census);
+        let floor_tex = upload_floor(&device, &queue, floor, &mut census);
 
-        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gibson-uniform"),
-            size: std::mem::size_of::<FrameUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let uniform_buf = census.create_buffer(
+            &device,
+            &wgpu::BufferDescriptor {
+                label: Some("gibson-uniform"),
+                size: std::mem::size_of::<FrameUniform>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        );
 
         let atlas_view = atlas_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let floor_view = floor_tex.create_view(&wgpu::TextureViewDescriptor::default());
@@ -587,14 +626,33 @@ impl Renderer {
             ],
         });
 
-        let floor_pass = Floor::new(&device, &scene_layout, HDR_FORMAT, targets::DEPTH_FORMAT)?;
-        let towers_pass = Towers::new(&device, &scene_layout, HDR_FORMAT, targets::DEPTH_FORMAT)?;
-        let pulses_pass = Pulses::new(&device, &scene_layout, HDR_FORMAT, targets::DEPTH_FORMAT)?;
+        let floor_pass = Floor::new(
+            &device,
+            &scene_layout,
+            HDR_FORMAT,
+            targets::DEPTH_FORMAT,
+            &mut census,
+        )?;
+        let towers_pass = Towers::new(
+            &device,
+            &scene_layout,
+            HDR_FORMAT,
+            targets::DEPTH_FORMAT,
+            &mut census,
+        )?;
+        let pulses_pass = Pulses::new(
+            &device,
+            &scene_layout,
+            HDR_FORMAT,
+            targets::DEPTH_FORMAT,
+            &mut census,
+        )?;
 
-        let post = Post::new(&device);
-        let mut bloom = Bloom::new(&device);
+        let post = Post::new(&device, &mut census);
+        let mut bloom = Bloom::new(&device, &mut census);
 
-        let targets = SceneTargets::new(&device, render_width, render_height, crt > 0.0)?;
+        let targets =
+            SceneTargets::new(&device, render_width, render_height, crt > 0.0, &mut census)?;
         let post_sampler = post.sampler.clone();
         let bloom0 = build_bloom_and_groups(
             &device,
@@ -603,6 +661,7 @@ impl Renderer {
             &post_sampler,
             &post,
             &targets,
+            &mut census,
         );
         let crt_bg = targets
             .signal_view
@@ -649,14 +708,31 @@ impl Renderer {
             skipped: 0,
             skipped_timeout: 0,
             skipped_occluded: 0,
+            frames: 0,
+            census,
+            last_census: census,
+            offscreen: None,
             profile,
         })
     }
 
     /// Reconfigure the surface (or just the offscreen size) to `viewport`'s scaled dimensions.
+    ///
+    /// Idempotent: a call that asks for the size and scale the renderer is already at does
+    /// nothing. It has to be, because the work here is the whole size-dependent resource set --
+    /// the HDR targets, the bloom chain and every view-dependent bind group -- and hosts
+    /// re-assert their size far more often than it changes (a layout pass, a backing-scale
+    /// notification, a display change). Rebuilding that set for a size that did not move would
+    /// allocate and drop ten full-size textures plus several dozen bind groups per call, which
+    /// is both a stall and the exact shape of "the renderer is leaking GPU memory" in a census.
+    /// That is not hypothetical: the desktop host asserts its size on its very first frame, and
+    /// the rebuild put its startup census at 22 textures / 181.5 MiB instead of 12 / 122.3 MiB.
     pub fn resize(&mut self, viewport: Viewport) {
         let scale = viewport.scale;
         let (w, h) = viewport.scaled_dimensions();
+        if (w, h) == (self.width, self.height) && scale == self.scale {
+            return;
+        }
         self.width = w;
         self.height = h;
         self.scale = scale;
@@ -683,7 +759,7 @@ impl Renderer {
     fn rebuild_size_dependent(&mut self) {
         let (rw, rh) = scene_size(self.width, self.height, self.crt);
         let signal = self.crt > 0.0;
-        let Ok(targets) = SceneTargets::new(&self.device, rw, rh, signal) else {
+        let Ok(targets) = SceneTargets::new(&self.device, rw, rh, signal, &mut self.census) else {
             log::error!("gibson-render: failed to rebuild targets at {rw}x{rh}");
             return;
         };
@@ -694,9 +770,12 @@ impl Renderer {
             &self.device,
             rw,
             rh,
-            &self.uniform_buf,
-            &self.post.sampler,
-            &self.targets.view_a,
+            BloomInputs {
+                uniform: &self.uniform_buf,
+                sampler: &self.post.sampler,
+                src_view: &self.targets.view_a,
+            },
+            &mut self.census,
         );
         let (mbg, cbg_a, cbg_b) = build_view_bind_groups(
             &self.device,
@@ -836,42 +915,41 @@ impl Renderer {
         (self.skipped_timeout, self.skipped_occluded)
     }
 
+    /// GPU resources this renderer has allocated, with their byte sizes.
+    ///
+    /// The frame path allocates nothing in the steady state, so these totals stop moving after
+    /// startup and stay put across resizes; a run whose totals keep climbing is creating (and,
+    /// since nothing is freed, accumulating) GPU resources per frame. Measured on the desktop
+    /// host: flat at `textures=22 buffers=10` from frame 1 to frame 34800 over 31 minutes. See
+    /// [`GpuCensus`] for why this is counted in-process rather than read from Metal or `ioreg`.
+    pub fn gpu_census(&self) -> GpuCensus {
+        self.census
+    }
+
     /// Render one frame offscreen and read back tightly packed sRGB8 rows, top row first.
+    ///
+    /// The target and its staging buffer are cached per render size (see
+    /// [`targets::OffscreenTarget`]), so a host that renders offscreen frame after frame --
+    /// the snapshot host renders one per simulated 1/60 s step -- allocates nothing per frame.
     pub fn render_to_rgba(
         &mut self,
         frame: &FrameData,
     ) -> Result<(u32, u32, Vec<u8>), RenderError> {
-        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-        let size = wgpu::Extent3d {
-            width: self.width,
-            height: self.height,
-            depth_or_array_layers: 1,
-        };
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gibson-offscreen"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let (width, height) = (self.width, self.height);
+        self.ensure_offscreen();
+        let target = self
+            .offscreen
+            .as_ref()
+            .ok_or_else(|| RenderError::Other("offscreen target missing".into()))?;
+        let texture = target.texture.clone();
+        let view = target.view.clone();
+        let readback = target.readback.clone();
+        let bytes_per_row = target.bytes_per_row;
         let mut prof = self.profile.take();
-        let result = self.run_chain(frame, &view, format, prof.as_mut());
+        let result = self.run_chain(frame, &view, targets::OFFSCREEN_FORMAT, prof.as_mut());
         self.profile = prof;
         result?;
 
-        // Read back with the 256-byte row alignment wgpu requires for buffers, then strip it.
-        let bytes_per_row = align_up(self.width as usize * 4, 256);
-        let buffer_size = (bytes_per_row * self.height as usize) as u64;
-        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gibson-offscreen-readback"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -885,28 +963,48 @@ impl Renderer {
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: &buffer,
+                buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(bytes_per_row as u32),
-                    rows_per_image: Some(self.height),
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: Some(height),
                 },
             },
-            size,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
         self.queue.submit(Some(encoder.finish()));
 
-        let slice = buffer.slice(..);
+        let slice = readback.slice(..);
         slice.map_async(wgpu::MapMode::Read, |r| r.expect("map readback buffer"));
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
         let mapped = slice.get_mapped_range().expect("map readback buffer");
-        let mut rgba = Vec::with_capacity(self.width as usize * self.height as usize * 4);
-        for row in mapped.chunks(bytes_per_row).take(self.height as usize) {
-            rgba.extend_from_slice(&row[..self.width as usize * 4]);
+        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
+        for row in mapped.chunks(bytes_per_row as usize).take(height as usize) {
+            rgba.extend_from_slice(&row[..width as usize * 4]);
         }
         drop(mapped);
-        buffer.unmap();
-        Ok((self.width, self.height, rgba))
+        readback.unmap();
+        Ok((width, height, rgba))
+    }
+
+    /// Build the cached offscreen target if it is missing or the render size moved.
+    fn ensure_offscreen(&mut self) {
+        let stale = match &self.offscreen {
+            Some(o) => o.width != self.width || o.height != self.height,
+            None => true,
+        };
+        if stale {
+            self.offscreen = Some(targets::OffscreenTarget::new(
+                &self.device,
+                self.width,
+                self.height,
+                &mut self.census,
+            ));
+        }
     }
 
     /// Run the full HDR chain and composite into `final_view`.
@@ -955,10 +1053,16 @@ impl Renderer {
             .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uniform));
 
         // Instance + geometry uploads.
-        self.towers.upload(&self.device, &self.queue, frame.towers);
-        self.pulses.upload(&self.device, &self.queue, frame.pulses);
-        self.floor
-            .ensure_grid(&self.device, &self.queue, frame.settings.grid as f32);
+        self.towers
+            .upload(&self.device, &self.queue, frame.towers, &mut self.census);
+        self.pulses
+            .upload(&self.device, &self.queue, frame.pulses, &mut self.census);
+        self.floor.ensure_grid(
+            &self.device,
+            &self.queue,
+            frame.settings.grid as f32,
+            &mut self.census,
+        );
 
         let mut encoder = self
             .device
@@ -1315,7 +1419,24 @@ impl Renderer {
         self.queue.submit(Some(encoder.finish()));
         self.prev_view_proj = vp;
         self.has_prev = true;
+        self.frames += 1;
+        self.report_census();
         Ok(())
+    }
+
+    /// Log the GPU resource census periodically, and on the frame it changes.
+    ///
+    /// The steady state has one fixed set of targets and buffers, so the logs of a long run
+    /// come out with identical totals; a frame that allocated anything would show up as an
+    /// increase on that very line rather than hiding between samples. This is the in-process
+    /// evidence behind "the frame path does not allocate per frame" (see [`util::GpuCensus`]).
+    fn report_census(&mut self) {
+        let now = self.census;
+        if !self.frames.is_multiple_of(CENSUS_INTERVAL) && now == self.last_census {
+            return;
+        }
+        log::info!("gibson-render: frames={} gpu {now}", self.frames);
+        self.last_census = now;
     }
 
     /// Render one frame offscreen with GPU timestamps and return per-pass milliseconds.
@@ -1334,27 +1455,14 @@ impl Renderer {
             ));
         };
         profile.reset();
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gibson-profile-target"),
-            size: wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let result = self.run_chain(
-            frame,
-            &view,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            Some(&mut profile),
-        );
+        self.ensure_offscreen();
+        let view = self
+            .offscreen
+            .as_ref()
+            .ok_or_else(|| RenderError::Other("offscreen target missing".into()))?
+            .view
+            .clone();
+        let result = self.run_chain(frame, &view, targets::OFFSCREEN_FORMAT, Some(&mut profile));
         let report = match result {
             Ok(()) => profile.read(&self.device),
             Err(e) => {
@@ -1375,15 +1483,19 @@ fn build_bloom_and_groups(
     sampler: &wgpu::Sampler,
     post: &Post,
     targets: &SceneTargets,
+    census: &mut GpuCensus,
 ) -> (wgpu::BindGroup, wgpu::BindGroup, wgpu::BindGroup) {
     // The bloom chain shadows the scene size, and `targets` already carries it.
     bloom.rebuild(
         device,
         targets.width,
         targets.height,
-        uniform,
-        sampler,
-        &targets.view_a,
+        BloomInputs {
+            uniform,
+            sampler,
+            src_view: &targets.view_a,
+        },
+        census,
     );
     build_view_bind_groups(device, uniform, bloom, sampler, post, targets)
 }

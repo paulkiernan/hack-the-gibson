@@ -6,6 +6,7 @@
 //! presentable / offscreen image. `depth` doubles as the motion-blur reprojection
 //! source, so it needs `TEXTURE_BINDING` as well as `RENDER_ATTACHMENT`.
 
+use crate::util::GpuCensus;
 use crate::RenderError;
 use wgpu::TextureFormat;
 
@@ -58,12 +59,42 @@ impl SceneTargets {
         width: u32,
         height: u32,
         signal: bool,
+        census: &mut GpuCensus,
     ) -> Result<SceneTargets, RenderError> {
         let color_usage =
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
-        let mk = |label: &str| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
+        let mk = |label: &str, census: &mut GpuCensus| {
+            census.create_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: HDR_FORMAT,
+                    usage: color_usage,
+                    view_formats: &[],
+                },
+            )
+        };
+        let color_a = mk("gibson-hdr-a", &mut *census);
+        let color_b = mk("gibson-hdr-b", &mut *census);
+        let (signal_tex, signal_view) = if signal {
+            let tex = mk("gibson-hdr-signal", &mut *census);
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            (Some(tex), Some(view))
+        } else {
+            (None, None)
+        };
+        let depth = census.create_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("gibson-depth"),
                 size: wgpu::Extent3d {
                     width,
                     height,
@@ -72,49 +103,30 @@ impl SceneTargets {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: HDR_FORMAT,
-                usage: color_usage,
+                format: DEPTH_FORMAT,
+                // Never sampled: the motion-blur pass reprojects from `depth_color` instead.
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
-            })
-        };
-        let color_a = mk("gibson-hdr-a");
-        let color_b = mk("gibson-hdr-b");
-        let (signal_tex, signal_view) = if signal {
-            let tex = mk("gibson-hdr-signal");
-            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-            (Some(tex), Some(view))
-        } else {
-            (None, None)
-        };
-        let depth = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gibson-depth"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            // Never sampled: the motion-blur pass reprojects from `depth_color` instead.
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let depth_color = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("gibson-depth-color"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
+        );
+        let depth_color = census.create_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("gibson-depth-color"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_COLOR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_COLOR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        );
         if width == 0 || height == 0 {
             return Err(RenderError::Other("zero render target size".into()));
         }
@@ -148,3 +160,80 @@ pub fn depth_color_target() -> Option<wgpu::ColorTargetState> {
         write_mask: wgpu::ColorWrites::ALL,
     })
 }
+
+/// The sRGB target an offscreen frame is composited into, plus the staging buffer it is read
+/// back through -- both cached, because both are the same size for every frame at a given
+/// render size.
+///
+/// The offscreen path (`Renderer::render_to_rgba`) used to create a fresh texture and a fresh
+/// readback buffer per call. A host that renders one offscreen frame per simulated step (the
+/// snapshot host does exactly that: one per 1/60 s of scene time) therefore allocated and freed
+/// ~11 MiB of GPU memory per frame at 1600x900 -- 721 allocations apiece for a single
+/// 12-second still, and both numbers scale with pixel count. Nothing about the target changes
+/// between those frames, so it is built once per size and reused.
+///
+/// The same target doubles as the profiling pass's output ([`Renderer::profile_frame`]): that
+/// pass also writes full-size sRGB and never reads the image back, so it has no reason to own a
+/// second allocation.
+pub struct OffscreenTarget {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+    /// Staging buffer for the `TEXTURE_BINDING`-less readback path, sized with the row
+    /// alignment `copy_texture_to_buffer` requires.
+    pub readback: wgpu::Buffer,
+    pub bytes_per_row: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl OffscreenTarget {
+    /// Allocate the target and its staging buffer for `width x height`.
+    pub fn new(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        census: &mut GpuCensus,
+    ) -> OffscreenTarget {
+        let texture = census.create_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("gibson-offscreen"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: OFFSCREEN_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bytes_per_row = crate::align_up(width as usize * 4, 256) as u32;
+        let readback = census.create_buffer(
+            device,
+            &wgpu::BufferDescriptor {
+                label: Some("gibson-offscreen-readback"),
+                size: bytes_per_row as u64 * height as u64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            },
+        );
+        OffscreenTarget {
+            texture,
+            view,
+            readback,
+            bytes_per_row,
+            width,
+            height,
+        }
+    }
+}
+
+/// Format of the offscreen / profiling composite target: sRGB8, the same encoding the surface
+/// carries, so an offscreen frame and an on-screen frame are produced by the identical shader
+/// path (`final_srgb` true in both cases).
+pub const OFFSCREEN_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
