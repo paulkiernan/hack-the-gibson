@@ -10,8 +10,8 @@
 #     forks, 90 watchers or 225 stars for the repository owner); this repo is
 #     far below them.
 cask "gibson-screensaver" do
-  version "2.1.0"
-  sha256 "a290dc1a9e8853254cd12549b6971285d1c39ea1c7607aa6123b9574628303ee"
+  version "2.1.1"
+  sha256 "7a11cb1df741888e7908311b119478da91903c581cb2f2f46b2e900a9d2f86dc"
 
   url "https://github.com/paulkiernan/gibson-screensaver/releases/download/#{version}/Gibson.saver.zip"
   name "The Gibson"

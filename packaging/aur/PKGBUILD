@@ -31,7 +31,7 @@
 #
 # ── depends: read out of the code, not copied from a template ──────────────
 # The released Linux binary links almost nothing. `readelf -d` (checked with
-# GNU objdump -p against the 2.1.0 asset) shows only libgcc_s.so.1, libm.so.6,
+# GNU objdump -p against the 2.1.1 asset) shows only libgcc_s.so.1, libm.so.6,
 # libc.so.6 and the dynamic loader. Every X11 / Wayland / Vulkan library is
 # dlopen()ed at runtime, so namcap cannot see any of them and each one has to
 # be written down here by hand:
@@ -70,7 +70,7 @@
 #
 # ── sha256sums ────────────────────────────────────────────────────────────
 # Measured, not guessed: the value below is the SHA256 of
-# https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/2.1.0.tar.gz
+# https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/2.1.1.tar.gz
 # as downloaded on 2026-09-11, and GitHub generated a byte-identical tarball on
 # a second download. `updpkgsums` in this directory will re-measure it; run that
 # after any change to `source`, and note that a force-retag (`git tag -f`) makes
@@ -78,7 +78,7 @@
 # not moved.
 
 pkgname=gibson-screensaver
-pkgver=2.1.0
+pkgver=2.1.1
 pkgrel=1
 pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)'
 arch=('x86_64')
@@ -121,7 +121,7 @@ optdepends=(
 )
 
 source=("$pkgname-$pkgver.tar.gz::https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('3d9ba1b8c98e9259960b0ccec21a92eadc1a983f90a454862385049113349413')
+sha256sums=('c3d3f667f10432dd352532fdb2aa434ec2200dd48da2347193b9334b7725a6d8')
 
 prepare() {
   cd "$pkgname-$pkgver"

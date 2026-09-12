@@ -25,7 +25,7 @@
 # daemon itself.
 
 pkgname=gibson-screensaver-bin
-pkgver=2.1.0
+pkgver=2.1.1
 pkgrel=1
 pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); prebuilt xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)'
 arch=('x86_64')
@@ -70,7 +70,7 @@ source=(
   "LICENSE-$pkgver::https://raw.githubusercontent.com/paulkiernan/gibson-screensaver/$pkgver/LICENSE"
 )
 sha256sums=(
-  '100767c12b3231fa5741039b1bed76ac6a97522dd995ff87439ef554927ad4c6'
+  'f510a53b9f380089f07fdc02af2c5da8b089d303aabae6686962177080a3f6a9'
   '0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b'
 )
 

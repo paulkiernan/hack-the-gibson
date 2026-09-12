@@ -61,12 +61,12 @@ locally; the release's own `SHA256SUMS` gives the same asset digests.
 
 | Source in the `PKGBUILD`s | SHA256 |
 | --- | --- |
-| `.../archive/refs/tags/2.1.0.tar.gz` (source package) | `3d9ba1b8c98e9259960b0ccec21a92eadc1a983f90a454862385049113349413` |
-| `.../releases/download/2.1.0/gibson-screensaver-linux-x86_64.tar.gz` (-bin) | `100767c12b3231fa5741039b1bed76ac6a97522dd995ff87439ef554927ad4c6` |
-| `.../raw/.../2.1.0/LICENSE` (-bin, the asset tarball has no licence file) | `0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b` |
+| `.../archive/refs/tags/2.1.1.tar.gz` (source package) | `c3d3f667f10432dd352532fdb2aa434ec2200dd48da2347193b9334b7725a6d8` |
+| `.../releases/download/2.1.1/gibson-screensaver-linux-x86_64.tar.gz` (-bin) | `f510a53b9f380089f07fdc02af2c5da8b089d303aabae6686962177080a3f6a9` |
+| `.../raw/.../2.1.1/LICENSE` (-bin, the asset tarball has no licence file) | `0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b` |
 
 `updpkgsums` re-measures these; run it after any `source` change. A force-retag
-(`git tag -f 2.1.0`) makes GitHub regenerate the tag tarball and invalidates the
+(`git tag -f 2.1.1`) makes GitHub regenerate the tag tarball and invalidates the
 first digest even though `pkgver` has not moved.
 
 ## Package name
@@ -184,7 +184,7 @@ The first commit therefore looks like:
 
 ```sh
 git add PKGBUILD .SRCINFO LICENSE
-git commit -m 'Initial import: gibson-screensaver 2.1.0-1'
+git commit -m 'Initial import: gibson-screensaver 2.1.1-1'
 ```
 
 Do not push yet - test first.
@@ -224,7 +224,7 @@ skimming it:
 
 ```sh
 namcap PKGBUILD
-namcap gibson-screensaver-2.1.0-1-x86_64.pkg.tar.zst
+namcap gibson-screensaver-2.1.1-1-x86_64.pkg.tar.zst
 ```
 
 The three classes of `namcap` finding that matter here:
@@ -259,7 +259,7 @@ possibly `pkgrel`), regenerate again. Then commit and push:
 ```sh
 makepkg --printsrcinfo > .SRCINFO
 git add PKGBUILD .SRCINFO LICENSE
-git commit -m 'gibson-screensaver 2.1.0-1'
+git commit -m 'gibson-screensaver 2.1.1-1'
 git push origin master
 ```
 

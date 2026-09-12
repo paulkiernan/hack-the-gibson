@@ -7,7 +7,7 @@ at the end.
 
 ## The release contract these files pin
 
-Every file here pins release **`2.1.0`**, the current published release
+Every file here pins release **`2.1.1`**, the current published release
 (confirmed with `gh release view`, published 2026-09-11). A release is created
 by pushing a bare-semver tag, which runs `.github/workflows/release.yml` and
 publishes these assets - the list in that workflow's `RELEASE_ASSETS` is the
@@ -24,7 +24,7 @@ directory needs a matching edit:
 | `SHA256SUMS` | the hash source for the Scoop and Homebrew manifests |
 
 The AUR gets **two** packages. `aur/PKGBUILD` deliberately builds from the
-**tag tarball** (`.../archive/refs/tags/2.1.0.tar.gz`), not from
+**tag tarball** (`.../archive/refs/tags/2.1.1.tar.gz`), not from
 `gibson-screensaver-linux-x86_64.tar.gz`. That is what lets it take the bare name
 `gibson-screensaver`: the AUR reserves `-bin` for packages built from prebuilt
 deliverables when the sources are available, and here they are. `aur-bin/` is the

@@ -5,9 +5,9 @@ A cask for the owner's **personal tap**, using the `screen_saver` stanza so
 
 | Field | Value |
 | --- | --- |
-| Version | `2.1.0` |
-| Asset | `Gibson.saver.zip` from release `2.1.0` |
-| SHA256 | `a290dc1a9e8853254cd12549b6971285d1c39ea1c7607aa6123b9574628303ee` |
+| Version | `2.1.1` |
+| Asset | `Gibson.saver.zip` from release `2.1.1` |
+| SHA256 | `7a11cb1df741888e7908311b119478da91903c581cb2f2f46b2e900a9d2f86dc` |
 | Minimum macOS | `>= :sonoma` (14.0), from the bundle's own `LSMinimumSystemVersion` |
 
 The hash is the one in that release's published `SHA256SUMS`, so it describes
@@ -54,7 +54,7 @@ cd homebrew-tap
 mkdir -p Casks/h
 cp /path/to/packaging/homebrew/gibson-screensaver.rb Casks/h/
 git add Casks/h/gibson-screensaver.rb
-git commit -m 'gibson-screensaver 2.1.0'
+git commit -m 'gibson-screensaver 2.1.1'
 git push
 ```
 

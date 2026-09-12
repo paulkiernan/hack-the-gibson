@@ -6,7 +6,7 @@
 # pkgdesc, arch, license, provides, conflicts, install). See ../aur/README.md.
 pkgbase = gibson-screensaver-bin
 	pkgdesc = Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); prebuilt xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)
-	pkgver = 2.1.0
+	pkgver = 2.1.1
 	pkgrel = 1
 	url = https://github.com/paulkiernan/gibson-screensaver
 	install = gibson-screensaver-bin.install
@@ -30,9 +30,9 @@ pkgbase = gibson-screensaver-bin
 	optdepends = vulkan-swrast: software Vulkan rasteriser (lavapipe), for machines with no GPU driver
 	provides = gibson-screensaver
 	conflicts = gibson-screensaver
-	source = gibson-screensaver-linux-x86_64-2.1.0.tar.gz::https://github.com/paulkiernan/gibson-screensaver/releases/download/2.1.0/gibson-screensaver-linux-x86_64.tar.gz
-	source = LICENSE-2.1.0::https://raw.githubusercontent.com/paulkiernan/gibson-screensaver/2.1.0/LICENSE
-	sha256sums = 100767c12b3231fa5741039b1bed76ac6a97522dd995ff87439ef554927ad4c6
+	source = gibson-screensaver-linux-x86_64-2.1.1.tar.gz::https://github.com/paulkiernan/gibson-screensaver/releases/download/2.1.1/gibson-screensaver-linux-x86_64.tar.gz
+	source = LICENSE-2.1.1::https://raw.githubusercontent.com/paulkiernan/gibson-screensaver/2.1.1/LICENSE
+	sha256sums = f510a53b9f380089f07fdc02af2c5da8b089d303aabae6686962177080a3f6a9
 	sha256sums = 0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b
 
 pkgname = gibson-screensaver-bin
