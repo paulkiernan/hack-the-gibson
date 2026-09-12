@@ -59,6 +59,35 @@ final class GibsonSaverView: ScreenSaverView {
     /// saver quits itself once it has been stopped for a while. One timer for
     /// the process (termination is process-wide); a new start cancels it.
     private static var terminateTimer: Timer?
+    /// True once the framework has asked this process to animate. Once it has,
+    /// the host must not quit itself: macOS relaunches it immediately with the
+    /// same request, and that relaunched engine renders with nothing on screen
+    /// and no dismissal to end it (measured; see `scheduleTerminateIfNeeded`).
+    private static var everAskedToAnimate = false
+    /// Slow heartbeat while the process has no engine, so "nothing is being
+    /// rendered" is visible in the log even though no frame stats are emitted.
+    private static var idleHeartbeatTimer: Timer?
+    /// A start request with no session behind it is given this long to be backed
+    /// by a `didstart` before the host decides not to render at all.
+    private static let startRequestGrace: TimeInterval = 3
+    /// A `didstart` this recent is accepted as evidence even if a stop has been
+    /// observed since (stops can be delivered after the next session starts).
+    private static let recentSessionWindow: TimeInterval = 10
+    /// Wall clock of the last observed session start / end, for
+    /// `mayAnimateNow`. Negative means "never observed in this process".
+    private static var sessionStartedAt: CFAbsoluteTime = -1
+    private static var sessionEndedAt: CFAbsoluteTime = -1
+
+    private static func sessionStarted() {
+        sessionStartedAt = CACurrentMediaTime()
+    }
+
+    private static func sessionEnded() {
+        sessionEndedAt = CACurrentMediaTime()
+    }
+
+    /// Pending deferred start for this view (see `deferStartRequest`).
+    private var pendingStart: Timer?
 
     /// Unique per view instance. Carried in the NewInstance notification so an
     /// observer can never mistake its own announcement for somebody else's
@@ -88,9 +117,18 @@ final class GibsonSaverView: ScreenSaverView {
     /// Whether the view has ever been displayed (grace period at start).
     private var hasBeenDisplayed = false
     private var engineStartedAt: CFAbsoluteTime = 0
+    /// Wall clock of the last lifecycle-evidence check, and how many consecutive
+    /// checks have seen the framework report the view as no longer animating.
+    private var lastLifecycleCheck: CFAbsoluteTime = 0
+    private var notAnimatingChecks = 0
+    /// True once the framework has confirmed the view IS animating. Until that
+    /// has happened at least once, "not animating" carries no information, so
+    /// it is never acted on.
+    private var sawAnimating = false
     /// The CAMetalLayer handed to wgpu at engine start, compared each stats
     /// tick with the view's current layer to detect a host layer swap.
     private weak var configuredLayer: CAMetalLayer?
+
 
     // MARK: - Init / layer
 
@@ -104,11 +142,21 @@ final class GibsonSaverView: ScreenSaverView {
         // practice, but a dismissal has been seen where it never arrived (the
         // engine then kept rendering slowly until the next activation claimed
         // the display), so the companion `didstop` is a second trigger.
+        // `didstart` is observed as well: it is the system's own announcement
+        // that a saver session started (measured: posted ~0.7 s before the
+        // framework's `startAnimation`), which is positive evidence that the
+        // host is wanted and cancels any idle quit armed earlier.
         for name in ["com.apple.screensaver.willstop", "com.apple.screensaver.didstop"] {
             DistributedNotificationCenter.default().addObserver(
                 self, selector: #selector(handleWillStop(_:)),
                 name: NSNotification.Name(name), object: nil)
         }
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(handleDidStart(_:)),
+            name: NSNotification.Name("com.apple.screensaver.didstart"), object: nil)
+        // A host that is created but never asked to animate must not linger
+        // either: arm the idle quit now. `startAnimation` cancels it.
+        scheduleTerminateIfNeeded()
     }
 
     required init?(coder: NSCoder) {
@@ -116,6 +164,7 @@ final class GibsonSaverView: ScreenSaverView {
     }
 
     deinit {
+        cancelPendingStart()
         stopEngine()
         NotificationCenter.default.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
@@ -138,7 +187,7 @@ final class GibsonSaverView: ScreenSaverView {
             // Diagnostics: an opaque fill needs no drawable, so if the display
             // shows this colour the window/layer really is what is on screen.
             layer.backgroundColor = NSColor.red.cgColor
-            Self.log.info("debug layer fill: backing layer painted red")
+            Self.log.notice("debug layer fill: backing layer painted red")
         }
         return layer
     }
@@ -205,19 +254,171 @@ final class GibsonSaverView: ScreenSaverView {
     /// question at this window level.
     private static func sweep() {
         liveViews.removeAll { $0.view == nil }
+        let now = CACurrentMediaTime()
         for ref in liveViews {
             guard let view = ref.view, view.gibsonHandle != nil else { continue }
             if view.window == nil || view.window?.isVisible == false {
                 view.teardown(reason: "window gone")
+                continue
             }
+            view.checkLifecycleEvidence(now: now)
         }
+    }
+
+    // MARK: - Lifecycle evidence
+
+    /// How often the lifecycle evidence is re-read (the per-frame gate would
+    /// otherwise query the window server on every frame).
+    private static let lifecycleCheckInterval: TimeInterval = 1
+    /// Consecutive "not animating" checks required before the engine is
+    /// retired, so a single glitchy read cannot black out a displayed saver.
+    private static let notAnimatingChecksBeforeTeardown = 3
+    /// Consecutive "cannot be displayed" checks required before teardown.
+    private static let noDisplayChecksBeforeTeardown = 2
+    private var noDisplayChecks = 0
+    /// Grace after engine start before input counts as proof of an orphan.
+    private static let inputOrphanGrace: TimeInterval = 5
+    /// Consecutive input-while-rendering checks required before teardown.
+    private static let inputChecksBeforeTeardown = 3
+    private var inputWhileRenderingChecks = 0
+
+
+    /// Retire the engine when the display it is on cannot be showing it.
+    ///
+    /// Two independent facts are checked, both public and both cheap:
+    ///
+    /// 1. **Display power.** `CGDisplayIsAsleep` / `CGDisplayIsActive` /
+    ///    `CGDisplayIsOnline` for the display this view's window is on. Nothing
+    ///    can be visible on a display that is asleep or off, and the reported
+    ///    defect matches this exactly: the leaked engine in the owner's log
+    ///    dropped from `fps=60.0` to `fps=7-12` at the moment the saver was
+    ///    dismissed — the signature of a display link throttled by a sleeping
+    ///    display — and then kept presenting frames for 6h42m. Retiring when
+    ///    the display sleeps ends that case, and on wake the framework restarts
+    ///    the animation (verified: `didstart` and `startAnimation` both follow
+    ///    a display wake-up that resumes a session).
+    ///
+    /// 2. **The framework's own animation flag** (`ScreenSaverView.animating`,
+    ///    documented as "YES when the screen saver is animating"). It never
+    ///    flipped in this investigation — it read `true` while displayed *and*
+    ///    after dismissal — so it is only ever acted on after it has been seen
+    ///    `true` at least once since the engine started, and after several
+    ///    consecutive `false` reads. If a future macOS invalidates the
+    ///    framework's animation timer at dismissal (which is what the flag is
+    ///    for), this becomes a first-class dismissal signal instead of dead
+    ///    weight.
+    ///
+    /// Everything else that was measured is deliberately *not* used, because it
+    /// does not distinguish the two states at all: `window.isVisible`,
+    /// `window.isOnActiveSpace`, `window.screen`, `superview`,
+    /// `isHiddenOrHasHiddenAncestor` and `occlusionState` (raw 8192 in both
+    /// states — the visible bit is never set at the screen saver window level)
+    /// are identical while displayed and after dismissal, and
+    /// `CGWindowListCopyWindowInfo(.optionAll)` returns our own entry with *no*
+    /// `kCGWindowIsOnscreen` key in either state: the key is absent, not false,
+    /// so the per-entry flag is unavailable to a sandboxed host just as the
+    /// `.optionOnScreenOnly` membership test is (that test tore down live
+    /// engines seconds into every activation and was reverted).
+    ///
+    /// 3. **Input arriving while we render.** A displayed screen saver cannot
+    ///    coexist with fresh user input, because input is what dismisses it: an
+    ///    engine that is still presenting frames after input arrived is an
+    ///    orphan by definition. This is the owner's case — the machine was in
+    ///    use for hours while the engine rendered. Three traps are closed:
+    ///    - the clock is anchored on *this* engine: input only counts when it
+    ///      arrived after `engineStartedAt + inputOrphanGrace`. A saver started
+    ///      by a keypress or click must not be retired by its own trigger;
+    ///    - a locked session is exempt: a locked saver legitimately stays
+    ///      visible while a password is typed, so there input is not evidence
+    ///      (`CGSessionCopyCurrentDictionary` gains `CGSSessionScreenIsLocked`
+    ///      on lock — measured);
+    ///    - previews are exempt, because in System Settings the user is
+    ///      actively clicking while the preview animates.
+    ///    `CGEventSource.secondsSinceLastEventType(.hidSystemState, any input)`
+    ///    is public CoreGraphics, needs no permission, and works in the sandbox
+    ///    (measured: it read 0.04 s right after a synthetic key event and 7.15 s
+    ///    when idle).
+    private func checkLifecycleEvidence(now: CFAbsoluteTime) {
+        guard gibsonHandle != nil else { return }
+        guard now - lastLifecycleCheck >= Self.lifecycleCheckInterval else { return }
+        lastLifecycleCheck = now
+        if !displayCanPresent() {
+            noDisplayChecks += 1
+            guard noDisplayChecks >= Self.noDisplayChecksBeforeTeardown else { return }
+            noDisplayChecks = 0
+            teardown(reason: "display asleep or off")
+            return
+        }
+        noDisplayChecks = 0
+        checkInputWhileRendering(now: now)
+        guard gibsonHandle != nil else { return }
+        if isAnimating {
+            sawAnimating = true
+            notAnimatingChecks = 0
+            return
+        }
+        guard sawAnimating else { return }
+        notAnimatingChecks += 1
+        guard notAnimatingChecks >= Self.notAnimatingChecksBeforeTeardown else { return }
+        teardown(reason: "framework reports the view is no longer animating")
+    }
+
+    /// Retire the engine when user input arrives while it is rendering: input
+    /// is what dismisses a screen saver, so a live saver and fresh input cannot
+    /// coexist. See `checkLifecycleEvidence` for the closed traps.
+    private func checkInputWhileRendering(now: CFAbsoluteTime) {
+        guard !isPreview else { return }
+        guard let idle = Self.hidIdleSeconds(), !Self.sessionIsLocked() else {
+            inputWhileRenderingChecks = 0
+            return
+        }
+        let running = now - engineStartedAt
+        // The last input event happened `idle` seconds ago. It counts only if it
+        // arrived after this engine had already been running for a grace period.
+        guard running > Self.inputOrphanGrace,
+              idle < running - Self.inputOrphanGrace else {
+            inputWhileRenderingChecks = 0
+            return
+        }
+        inputWhileRenderingChecks += 1
+        guard inputWhileRenderingChecks >= Self.inputChecksBeforeTeardown else { return }
+        inputWhileRenderingChecks = 0
+        teardown(reason: "input arrived while rendering (nothing on screen to dismiss)")
+    }
+
+    /// Seconds since the last HID input event, or `nil` when unavailable (then
+    /// this gate has no opinion and never acts).
+    private static func hidIdleSeconds() -> CFTimeInterval? {
+        guard let anyInput = CGEventType(rawValue: UInt32.max) else { return nil }
+        return CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInput)
+    }
+
+    /// Whether the login session is locked. A locked screen saver stays visible
+    /// while the user types a password, so input is not evidence of an orphan
+    /// there and the notification path is used instead.
+    private static func sessionIsLocked() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+            return false
+        }
+        return session["CGSSessionScreenIsLocked"] != nil
+    }
+
+    /// Whether the display hosting this view can be presenting pixels at all.
+    /// Uses the display the window is on, falling back to the main display.
+    private func displayCanPresent() -> Bool {
+        let display = (window?.screen?.deviceDescription[
+            NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            ?? CGMainDisplayID()
+        return CGDisplayIsAsleep(display) == 0
+            && CGDisplayIsActive(display) != 0
+            && CGDisplayIsOnline(display) != 0
     }
 
     /// Destroy the engine, drop out of the hierarchy and stop being tracked.
     /// Called for detached and superseded views.
     private func teardown(reason: String) {
         guard gibsonHandle != nil || superview != nil else { return }
-        Self.log.info("tearing down engine (\(reason, privacy: .public))")
+        Self.log.notice("tearing down engine (\(reason, privacy: .public))")
         stopEngine()
         removeFromSuperview()
     }
@@ -226,24 +427,93 @@ final class GibsonSaverView: ScreenSaverView {
 
     override func startAnimation() {
         super.startAnimation()
+        Self.everAskedToAnimate = true
         Self.cancelPendingTerminate()
         guard gibsonHandle == nil else { return }
-        Self.log.info("startAnimation (preview=\(self.isPreview))")
+        guard Self.mayAnimateNow(isPreview: isPreview) else {
+            // A start request with no live screen saver session behind it.
+            deferStartRequest()
+            return
+        }
+        beginAnimation()
+    }
+
+    override func stopAnimation() {
+        super.stopAnimation()
+        Self.log.notice("stopAnimation")
+        cancelPendingStart()
+        Self.sessionEnded()
+        stopEngine()
+        scheduleTerminateIfNeeded()
+    }
+
+    /// Start the engine and announce it to older instances in this process.
+    ///
+    /// The announcement happens after the engine is up so older duplicates
+    /// retire. The token identifies the author (a view never retires itself)
+    /// and the display number lets an observer tell "same screen, superseded"
+    /// (retire) from "another screen, still wanted" (keep).
+    private func beginAnimation() {
+        cancelPendingStart()
+        Self.log.notice("startAnimation (preview=\(self.isPreview))")
         startEngine()
-        // Announce after the engine is up so older duplicates retire. The token
-        // identifies the author (a view never retires itself) and the display
-        // number lets an observer tell "same screen, superseded" (retire) from
-        // "another screen, still wanted" (keep).
         NotificationCenter.default.post(name: Self.newInstanceNotification, object: self,
                                         userInfo: [Self.tokenKey: instanceToken,
                                                    Self.displayKey: displayNumber as Any])
     }
 
-    override func stopAnimation() {
-        super.stopAnimation()
-        Self.log.info("stopAnimation")
-        stopEngine()
-        scheduleTerminateIfNeeded()
+    /// Whether this start request is backed by a screen saver session.
+    ///
+    /// The ScreenSaver framework calls `startAnimation` on the host it launched,
+    /// but it also calls it on a host whose session has already ended — measured
+    /// twice on this machine: once for a host relaunched after quitting, and
+    /// once for a host woken from display sleep (the framework had called
+    /// `stopAnimation` when the display slept, the stop notifications arrived on
+    /// wake, and the very next `startAnimation` had no new `didstart` behind it).
+    /// An engine started then renders with nothing on screen and no dismissal
+    /// can ever end it: that is the reported defect, reproduced from the log.
+    ///
+    /// So rendering requires evidence of a live session:
+    /// - a preview (System Settings) always animates, because previews do not go
+    ///   through the session machinery;
+    /// - otherwise the request is honoured if no session has ever ended in this
+    ///   process (a fresh host may simply have missed the `didstart` that was
+    ///   posted before it was launched — refusing then would black out a live
+    ///   saver, which is worse than the bug we are fixing);
+    /// - otherwise a session must be live (its `didstart` is later than the last
+    ///   session end) or must have started within `recentSessionWindow`. That
+    ///   window also absorbs the opposite ordering, where the previous session's
+    ///   stop notification is delivered just after the new session's `didstart`.
+    private static func mayAnimateNow(isPreview: Bool) -> Bool {
+        if isPreview { return true }
+        if sessionEndedAt < 0 { return true }
+        if sessionStartedAt > sessionEndedAt { return true }
+        return CACurrentMediaTime() - sessionStartedAt < recentSessionWindow
+    }
+
+    /// A start request arrived without session evidence: give the system a
+    /// moment to post `didstart` (measured gap 0.1–0.7 s) before deciding not to
+    /// render at all.
+    private func deferStartRequest() {
+        Self.log.notice("startAnimation with no screen saver session; waiting before rendering")
+        cancelPendingStart()
+        let timer = Timer(timeInterval: Self.startRequestGrace, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.pendingStart = nil
+            guard self.gibsonHandle == nil else { return }
+            guard Self.sessionStartedAt > Self.sessionEndedAt else {
+                Self.log.notice("no screen saver session arrived; not rendering")
+                return
+            }
+            self.beginAnimation()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pendingStart = timer
+    }
+
+    private func cancelPendingStart() {
+        pendingStart?.invalidate()
+        pendingStart = nil
     }
 
     /// The engine never calls `stopAnimation` when the saver ends, so the
@@ -257,9 +527,32 @@ final class GibsonSaverView: ScreenSaverView {
     }
 
     private func willStop() {
-        Self.log.info("screen saver stop notification received")
+        Self.log.notice("screen saver stop notification received")
+        cancelPendingStart()
+        Self.sessionEnded()
         stopEngine()
         scheduleTerminateIfNeeded()
+    }
+
+    /// The system announced that a screen saver session started (`didstart`).
+    /// This is the only positive session evidence available to a sandboxed host:
+    /// it arms rendering for a start request that is still waiting, and cancels
+    /// a pending idle quit — a host the system has just asked to run must not
+    /// terminate itself.
+    @objc private func handleDidStart(_ note: Notification) {
+        let body = { [self] in
+            Self.log.notice("screen saver start notification received")
+            Self.sessionStarted()
+            Self.cancelPendingTerminate()
+            if pendingStart != nil, gibsonHandle == nil {
+                beginAnimation()
+            }
+        }
+        if Thread.isMainThread {
+            body()
+        } else {
+            DispatchQueue.main.async(execute: body)
+        }
     }
 
     /// A newer instance started in this process. Retire when we are a
@@ -280,7 +573,7 @@ final class GibsonSaverView: ScreenSaverView {
         let supersededOnSameScreen = posterDisplay != nil && posterDisplay == displayNumber
         guard isLingering || supersededOnSameScreen else { return }
         let reason = isLingering ? "detached" : "superseded on this display"
-        Self.log.info("newer instance started; retiring this view (\(reason))")
+        Self.log.notice("newer instance started; retiring this view (\(reason))")
         stopEngine()
         removeFromSuperview()
     }
@@ -344,6 +637,11 @@ final class GibsonSaverView: ScreenSaverView {
         gibsonHandle = handle
         engineStartedAt = CACurrentMediaTime()
         hasBeenDisplayed = false
+        lastLifecycleCheck = 0
+        notAnimatingChecks = 0
+        sawAnimating = false
+        // An engine is running now: cancel any idle quit armed while starting.
+        Self.cancelPendingTerminate()
         Self.register(self)
         if let display = displayNumber {
             // One engine per display, across activations: the host process
@@ -360,7 +658,7 @@ final class GibsonSaverView: ScreenSaverView {
         let created = "gibson_create ok (handle \(UInt(bitPattern: handle)), "
             + "\(Int(logical.width))x\(Int(logical.height)) logical, "
             + "effective scale \(Float(scale)))"
-        Self.log.info("\(created, privacy: .public)")
+        Self.log.notice("\(created, privacy: .public)")
         startRenderLoop()
     }
 
@@ -369,13 +667,18 @@ final class GibsonSaverView: ScreenSaverView {
         if let handle = gibsonHandle {
             gibson_destroy(handle)
             gibsonHandle = nil
-            Self.log.info("gibson_destroy ok")
+            Self.log.notice("gibson_destroy ok")
         }
         Self.unregister(self)
         hasBeenDisplayed = false
         frameFailures = 0
         lastLogicalSize = .zero
         lastScale = 0
+        notAnimatingChecks = 0
+        sawAnimating = false
+        // Nothing is animating in this process any more: do not let the host
+        // keep the process (and its footprint) alive for no reason.
+        scheduleTerminateIfNeeded()
     }
 
     // MARK: - Frame loop
@@ -399,7 +702,7 @@ final class GibsonSaverView: ScreenSaverView {
         frameTimeTotal = 0
         frameTimeCount = 0
         lastStatsWallClock = CACurrentMediaTime()
-        Self.log.info("render loop started")
+        Self.log.notice("render loop started")
     }
 
     private func stopRenderLoop() {
@@ -422,6 +725,9 @@ final class GibsonSaverView: ScreenSaverView {
         }
         hasBeenDisplayed = true
         ensureLayerDelegate()
+        checkLifecycleEvidence(now: CACurrentMediaTime())
+        // The evidence check can retire the engine; never use the stale handle.
+        guard gibsonHandle != nil else { return }
         let started = CACurrentMediaTime()
         let code = gibson_frame(handle, started)
         frameTimeTotal += CACurrentMediaTime() - started
@@ -431,7 +737,7 @@ final class GibsonSaverView: ScreenSaverView {
             framesRendered += 1
             if framesRendered - lastStatusLog >= 300 {
                 lastStatusLog = framesRendered
-                Self.log.info("rendered \(self.framesRendered) frames, no failures")
+                Self.log.notice("rendered \(self.framesRendered) frames, no failures")
             }
         } else {
             frameFailures += 1
@@ -453,7 +759,7 @@ final class GibsonSaverView: ScreenSaverView {
             return
         }
         metalLayer.delegate = layerDelegate
-        Self.log.info("reinstalled nil-window layer delegate")
+        Self.log.notice("reinstalled nil-window layer delegate")
     }
 
     /// Periodic evidence that pixels are actually being presented, taken from
@@ -461,6 +767,16 @@ final class GibsonSaverView: ScreenSaverView {
     /// rendered frame), plus the window/layer facts needed to explain a black
     /// screen: whether the layer wgpu configured is still the view's layer,
     /// whether that layer can produce drawables, and where the window sits.
+    ///
+    /// `presented` is incremented once per frame, after `queue.present` returns
+    /// Ok — never per display-link callback, and never for a frame that was
+    /// skipped (those increment the skip counters instead). `queue.present`
+    /// returning means *submitted*, not *retired* by the GPU, so this `fps` is
+    /// honest about presents and optimistic about display: over a short window
+    /// it can exceed what the GPU actually finished (a measured 5 s window read
+    /// 47-60 fps while sustained throughput on the same 2.80 Mpx target was
+    /// 23-28 fps). Read it as a submission rate, not as a guaranteed
+    /// on-screen frame rate.
     private func logFrameStats(handle: UnsafeMutableRawPointer) {
         let now = CACurrentMediaTime()
         guard now >= nextStatsLog else { return }
@@ -505,6 +821,16 @@ final class GibsonSaverView: ScreenSaverView {
         let onActiveSpace = window?.isOnActiveSpace ?? false
         let windowNumber = window?.windowNumber ?? -1
         let screenFrame = window?.screen?.frame ?? .zero
+        // The facts a future "is it still displayed?" investigation needs, all
+        // cheap and all kept permanently: the framework's own animation flag,
+        // the display power state, and who is frontmost. See
+        // `checkLifecycleEvidence` for the measurements behind each one.
+        let display = (window?.screen?.deviceDescription[
+            NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            ?? CGMainDisplayID()
+        let displayPower = "asleep=\(CGDisplayIsAsleep(display)) "
+            + "active=\(CGDisplayIsActive(display)) online=\(CGDisplayIsOnline(display))"
+        let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "nil"
         let pacing = "fps=\(String(format: "%.1f", fps)) "
             + "msPerFrame=\(String(format: "%.1f", msPerFrame)) "
         let line = pacing + "frames presented=\(deltaPresented) skipped=\(deltaSkipped) "
@@ -519,8 +845,11 @@ final class GibsonSaverView: ScreenSaverView {
             + "view=\(Int(bounds.width))x\(Int(bounds.height))@\(Int(bounds.origin.x)),\(Int(bounds.origin.y)) "
             + "layerSameAsCreated=\(sameLayer) drawable=\(Int(drawable.width))x\(Int(drawable.height)) "
             + "layerDevice=\(layerDevice) layerAttached=\(layerAttached) "
+            + "animating=\(isAnimating) display[\(displayPower)] frontmost=\(frontmost) "
+            + "hidIdle=\(String(format: "%.2f", Self.hidIdleSeconds() ?? -1)) "
+            + "locked=\(Self.sessionIsLocked()) "
             + "instance=\(instanceToken.uuidString.prefix(8))"
-        Self.log.info("\(line, privacy: .public)")
+        Self.log.notice("\(line, privacy: .public)")
     }
 
     // MARK: - Sizing
@@ -596,7 +925,7 @@ final class GibsonSaverView: ScreenSaverView {
         lastScale = scale
         let resized = "gibson_resize ok (\(Int(logical.width))x\(Int(logical.height)) logical, "
             + "effective scale \(Float(scale)))"
-        Self.log.info("\(resized, privacy: .public)")
+        Self.log.notice("\(resized, privacy: .public)")
     }
 
     // MARK: - Configuration sheet
@@ -609,23 +938,63 @@ final class GibsonSaverView: ScreenSaverView {
 
     // MARK: - Self termination
 
-    /// `legacyScreenSaver` never exits. Once this (non-preview) instance has
-    /// been stopped, quit the process after a grace period so a fresh, clean
-    /// engine starts on the next activation. Any new `startAnimation` cancels
-    /// the pending quit.
+    /// `legacyScreenSaver` does not exit on its own, and an unanimated host
+    /// holds tens of MB of RSS indefinitely (measured ~87 MB). Quit the process
+    /// once it has been idle long enough — but *only* for a host that has never
+    /// been asked to animate.
+    ///
+    /// That restriction is measured, not defensive. Quitting a host that the
+    /// system has already asked to animate makes macOS relaunch it immediately
+    /// and hand it the same request again, which starts an engine with nothing
+    /// on screen and no dismissal to end it — the very defect this change
+    /// exists to remove. Observed directly (host log, 5 s stats line, and a
+    /// distributed-notification watcher all agree):
+    /// ```
+    /// 02:00:00.211 idle 65 s with no engine; terminating host process
+    /// 02:00:00.920 [new host pid 61087] idle: no engine running ...
+    /// 02:00:01.440 [new host pid 61087] startAnimation (preview=false)
+    /// 02:00:02.080 [new host pid 61087] gibson_create ok ...
+    /// ... rendered 2400 frames ... with no didstart, no willstop, no session
+    /// ```
+    /// A speculative host that was never asked to animate has no such pending
+    /// request, so quitting it is free (macOS starts a host when one is next
+    /// needed). `didstart` and `startAnimation` both cancel a pending quit.
     private func scheduleTerminateIfNeeded() {
         guard !isPreview else { return }
+        guard !Self.everAskedToAnimate else { return }
+        guard !Self.hasRunningEngine else { return }
         Self.cancelPendingTerminate()
+        // Auditable idleness: with no engine there are no frame stats lines at
+        // all, so prove the process is not rendering (and is about to quit)
+        // with a slow heartbeat. Bounded: the quit below fires after 65 s.
+        Self.idleLog("idle: no engine running; host will quit in 65 s")
+        let heartbeat = Timer(timeInterval: 15, repeats: true) { _ in
+            Self.idleLog("idle heartbeat: still no engine in this process")
+        }
+        RunLoop.main.add(heartbeat, forMode: .common)
+        Self.idleHeartbeatTimer = heartbeat
         let timer = Timer(timeInterval: 65, repeats: false) { _ in
-            Self.log.info("idle 65 s after stop; terminating host process")
+            Self.idleLog("idle 65 s with no engine; terminating host process")
             NSApp.terminate(nil)
         }
         RunLoop.main.add(timer, forMode: .common)
         Self.terminateTimer = timer
     }
 
+    /// Log a process-idle line (persisted at notice level).
+    private static func idleLog(_ message: String) {
+        log.notice("\(message, privacy: .public)")
+    }
+
+    /// True while any view in this process has a live engine.
+    private static var hasRunningEngine: Bool {
+        liveViews.contains { $0.view?.gibsonHandle != nil }
+    }
+
     private static func cancelPendingTerminate() {
         terminateTimer?.invalidate()
         terminateTimer = nil
+        idleHeartbeatTimer?.invalidate()
+        idleHeartbeatTimer = nil
     }
 }
