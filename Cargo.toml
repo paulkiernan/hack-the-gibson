@@ -21,21 +21,21 @@ gibson-core = { path = "crates/gibson-core" }
 # Shared external crates — single source of truth for versions across the workspace.
 wgpu = "30"
 winit = "0.30"
-glam = "0.30"
+glam = "0.33"
 bytemuck = { version = "1", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 # rand with default features pulls getrandom's OS RNG, which does not build for
 # wasm32-unknown-unknown; every generator in this project is deterministic
 # (StdRng from a seed), so only std + std_rng are enabled.
-rand = { version = "0.9", default-features = false, features = ["std", "std_rng"] }
+rand = { version = "0.10", default-features = false, features = ["std", "std_rng"] }
 fontdue = "0.9"
 log = "0.4"
-pollster = "0.4"
+pollster = "1.0"
 env_logger = "0.11"
 clap = { version = "4", features = ["derive"] }
-toml = "0.8"
-dirs = "6"
-png = "0.17"
+toml = "1.1"
+dirs = "7"
+png = "0.18"
 serde_json = "1"
 raw-window-handle = "0.6"
 wasm-bindgen = "0.2"
@@ -44,7 +44,7 @@ web-sys = "0.3"
 console_error_panic_hook = "0.1"
 console_log = "1"
 x11-dl = "2"
-windows-sys = "0.59"
+windows-sys = "0.61"
 
 # Lint policy. Each member opts in with `[lints] workspace = true`, so there is exactly one
 # place a level is set and a local `cargo clippy` reports exactly what CI does.
